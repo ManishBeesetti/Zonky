@@ -1,0 +1,84 @@
+[workspace]
+members = [
+    "crates/zonky-core",
+    "crates/zonky-server",
+    "crates/zonky-cli",
+    "crates/zonky-tui",
+    "crates/zonky-ui",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/zonky-ai/zonky"
+
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+tokio-stream = "0.1"
+futures = "0.3"
+async-trait = "0.1"
+async-stream = "0.3"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+# Error handling
+thiserror = "2"
+anyhow = "1"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# HTTP / API
+axum = { version = "0.8", features = ["macros"] }
+axum-extra = { version = "0.10", features = ["typed-header"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace", "auth"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+
+# CLI
+clap = { version = "4", features = ["derive", "env"] }
+indicatif = "0.17"
+console = "0.15"
+dialoguer = "0.11"
+
+# TUI
+ratatui = "0.29"
+crossterm = "0.28"
+
+# Inference - Candle
+candle-core = "0.10"
+candle-nn = "0.10"
+candle-transformers = "0.10"
+
+# Inference - llama.cpp
+llama-cpp-2 = { version = "0.1", features = ["sampler"] }
+
+# HuggingFace
+hf-hub = "0.3"
+tokenizers = "0.21"
+
+# GPU detection
+nvml-wrapper = "0.10"
+
+# Utilities
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+directories = "5"
+bytesize = "1"
+rand = "0.8"
+
+# Core crate
+zonky-core = { path = "crates/zonky-core" }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true

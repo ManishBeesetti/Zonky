@@ -1,0 +1,10 @@
+pub mod chat;
+pub mod devices;
+pub mod info;
+pub mod list;
+pub mod pull;
+pub mod rm;
+pub mod run;
+pub mod search;
+pub mod serve;
+pub mod setup;

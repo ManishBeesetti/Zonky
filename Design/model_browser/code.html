@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;family=Space+Grotesk:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-tint": "#4cd6ff",
+                        "primary-fixed": "#b7eaff",
+                        "surface-container-high": "#2a2a2b",
+                        "on-secondary": "#003919",
+                        "on-secondary-fixed-variant": "#005227",
+                        "surface-bright": "#3a393a",
+                        "tertiary-container": "#ad79e1",
+                        "on-primary-fixed-variant": "#004e60",
+                        "surface-container-lowest": "#0e0e0f",
+                        "error": "#ffb4ab",
+                        "on-tertiary-fixed": "#2c0051",
+                        "secondary-fixed": "#83fba5",
+                        "tertiary": "#ddb8ff",
+                        "tertiary-fixed": "#f0dbff",
+                        "on-error": "#690005",
+                        "surface-dim": "#131314",
+                        "surface-container-low": "#1c1b1c",
+                        "secondary-fixed-dim": "#66dd8b",
+                        "surface": "#131314",
+                        "on-tertiary-fixed-variant": "#5f2c90",
+                        "on-secondary-container": "#003115",
+                        "surface-container-highest": "#353436",
+                        "primary-container": "#009dc1",
+                        "secondary-container": "#25a55a",
+                        "on-secondary-fixed": "#00210c",
+                        "inverse-on-surface": "#313031",
+                        "on-background": "#e5e2e3",
+                        "on-primary-container": "#002e3a",
+                        "error-container": "#93000a",
+                        "inverse-surface": "#e5e2e3",
+                        "on-tertiary": "#470e78",
+                        "on-tertiary-container": "#400071",
+                        "on-primary": "#003543",
+                        "primary-fixed-dim": "#4cd6ff",
+                        "on-primary-fixed": "#001f28",
+                        "outline-variant": "#414754",
+                        "on-error-container": "#ffdad6",
+                        "surface-variant": "#353436",
+                        "primary": "#4cd6ff",
+                        "on-surface-variant": "#c1c6d7",
+                        "inverse-primary": "#00677f",
+                        "outline": "#8b90a0",
+                        "tertiary-fixed-dim": "#ddb8ff",
+                        "secondary": "#66dd8b",
+                        "background": "#131314",
+                        "on-surface": "#e5e2e3",
+                        "surface-container": "#201f20"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "fontFamily": {
+                        "headline": ["Space Grotesk"],
+                        "body": ["Inter"],
+                        "label": ["Inter"]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        .glass-panel {
+            background: rgba(53, 52, 54, 0.8);
+            backdrop-filter: blur(24px);
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background text-on-surface font-body selection:bg-primary/30 selection:text-primary">
+<!-- NavigationDrawer (Shared Component) -->
+<aside class="fixed left-0 top-0 h-full flex flex-col items-center py-6 bg-[#0e0e0f] font-['Space_Grotesk'] tracking-tight h-screen w-20 flex-col z-50">
+<div class="mb-10 text-[#4cd6ff] font-bold tracking-widest text-xs">ZONKY</div>
+<nav class="flex flex-col gap-6 items-center flex-1">
+<button class="p-3 text-[#c1c6d7] opacity-60 hover:bg-[#353436] hover:opacity-100 transition-all scale-95 duration-100">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+</button>
+<button class="p-3 text-[#c1c6d7] opacity-60 hover:bg-[#353436] hover:opacity-100 transition-all scale-95 duration-100">
+<span class="material-symbols-outlined" data-icon="library_books">library_books</span>
+</button>
+<button class="p-3 text-[#4cd6ff] bg-[#353436] rounded-lg scale-95 duration-100">
+<span class="material-symbols-outlined" data-icon="extension" style="font-variation-settings: 'FILL' 1;">extension</span>
+</button>
+<button class="p-3 text-[#c1c6d7] opacity-60 hover:bg-[#353436] hover:opacity-100 transition-all scale-95 duration-100">
+<span class="material-symbols-outlined" data-icon="chat_bubble">chat_bubble</span>
+</button>
+<button class="p-3 text-[#c1c6d7] opacity-60 hover:bg-[#353436] hover:opacity-100 transition-all scale-95 duration-100">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+</button>
+</nav>
+</aside>
+<!-- TopAppBar (Shared Component) -->
+<header class="fixed top-0 right-0 left-20 z-40 flex items-center justify-between px-6 h-14 bg-[#131314]/80 backdrop-blur-xl font-['Inter'] text-sm">
+<div class="flex items-center gap-4">
+<span class="material-symbols-outlined text-[#4cd6ff]" data-icon="search">search</span>
+<span class="font-headline font-bold text-lg tracking-tight text-on-surface">System Search</span>
+</div>
+<div class="flex items-center gap-6">
+<div class="flex items-center gap-2 px-3 py-1 bg-surface-container-low rounded-full">
+<div class="w-2 h-2 rounded-full bg-secondary shadow-[0_0_8px_rgba(102,221,139,0.5)]"></div>
+<span class="text-[10px] font-medium tracking-widest uppercase">HF Connected</span>
+</div>
+<span class="material-symbols-outlined text-[#c1c6d7] hover:text-[#4cd6ff] transition-colors cursor-pointer" data-icon="more_vert">more_vert</span>
+</div>
+</header>
+<!-- Main Canvas -->
+<main class="pl-20 pt-14 pb-20 min-h-screen">
+<!-- Search & Filters Section -->
+<section class="px-8 py-10 bg-surface-container-low/50">
+<div class="max-w-6xl mx-auto space-y-8">
+<div class="space-y-2">
+<h1 class="text-4xl font-headline font-bold tracking-tighter">Model Hub</h1>
+<p class="text-on-surface-variant text-sm max-w-xl">Browse 4,291 optimized LLMs for local inference. Direct integration with HuggingFace Hub.</p>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-12 gap-4">
+<div class="md:col-span-6 relative">
+<span class="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant/50" data-icon="search">search</span>
+<input class="w-full bg-surface-container-high border-none rounded-xl py-4 pl-12 pr-4 focus:ring-1 focus:ring-primary/30 transition-all text-on-surface placeholder:text-on-surface-variant/40" placeholder="Search models by name or task..." type="text"/>
+</div>
+<div class="md:col-span-2">
+<select class="w-full bg-surface-container-high border-none rounded-xl py-4 px-4 focus:ring-1 focus:ring-primary/30 transition-all text-on-surface text-sm">
+<option>Quantization</option>
+<option>Q4_K_M (Recommended)</option>
+<option>Q5_K_M</option>
+<option>Q8_0</option>
+<option>F16</option>
+</select>
+</div>
+<div class="md:col-span-2">
+<select class="w-full bg-surface-container-high border-none rounded-xl py-4 px-4 focus:ring-1 focus:ring-primary/30 transition-all text-on-surface text-sm">
+<option>Model Type</option>
+<option>Llama</option>
+<option>Mistral</option>
+<option>Gemma</option>
+<option>Phi</option>
+</select>
+</div>
+<div class="md:col-span-2">
+<select class="w-full bg-surface-container-high border-none rounded-xl py-4 px-4 focus:ring-1 focus:ring-primary/30 transition-all text-on-surface text-sm">
+<option>Size</option>
+<option>&lt; 8B</option>
+<option>8B - 30B</option>
+<option>30B - 70B</option>
+<option>70B+</option>
+</select>
+</div>
+</div>
+<div class="flex items-center gap-2 overflow-x-auto no-scrollbar pb-2">
+<span class="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant/50 mr-2">Trending Tags:</span>
+<button class="px-3 py-1 bg-surface-container-high rounded-full text-xs font-medium hover:bg-primary/20 transition-colors">Coding</button>
+<button class="px-3 py-1 bg-surface-container-high rounded-full text-xs font-medium hover:bg-primary/20 transition-colors">Uncensored</button>
+<button class="px-3 py-1 bg-surface-container-high rounded-full text-xs font-medium hover:bg-primary/20 transition-colors">RP</button>
+<button class="px-3 py-1 bg-surface-container-high rounded-full text-xs font-medium hover:bg-primary/20 transition-colors">Chat-Optimized</button>
+<button class="px-3 py-1 bg-surface-container-high rounded-full text-xs font-medium hover:bg-primary/20 transition-colors">Fine-tuned</button>
+</div>
+</div>
+</section>
+<!-- Model Grid Section -->
+<section class="px-8 py-12 max-w-6xl mx-auto">
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+<!-- Model Card 1 -->
+<div class="bg-surface-container-lowest p-5 rounded-xl border border-outline-variant/10 hover:bg-surface-container-low transition-all group relative overflow-hidden">
+<div class="flex justify-between items-start mb-4">
+<div class="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
+<span class="material-symbols-outlined" data-icon="smart_toy">smart_toy</span>
+</div>
+<div class="flex flex-col items-end">
+<span class="text-[10px] font-mono text-secondary uppercase tracking-widest">Q4_K_M</span>
+<span class="text-[10px] text-on-surface-variant">Llama Architecture</span>
+</div>
+</div>
+<h3 class="text-lg font-headline font-bold mb-1 truncate">Llama-3-8B-Instruct</h3>
+<p class="text-sm text-on-surface-variant mb-6">Meta AI · 1.2M Downloads</p>
+<div class="flex items-center justify-between mt-auto">
+<div class="space-y-0.5">
+<span class="text-[10px] uppercase font-bold text-on-surface-variant/40 block">File Size</span>
+<span class="text-sm font-medium">4.92 GB</span>
+</div>
+<button class="flex items-center gap-2 bg-tertiary text-on-tertiary px-4 py-2 rounded-lg text-sm font-bold hover:brightness-110 transition-all">
+<span class="material-symbols-outlined text-sm" data-icon="download">download</span>
+                            Download
+                        </button>
+</div>
+</div>
+<!-- Model Card 2 -->
+<div class="bg-surface-container-lowest p-5 rounded-xl border border-outline-variant/10 hover:bg-surface-container-low transition-all group">
+<div class="flex justify-between items-start mb-4">
+<div class="w-10 h-10 rounded-lg bg-tertiary/10 flex items-center justify-center text-tertiary">
+<span class="material-symbols-outlined" data-icon="auto_awesome">auto_awesome</span>
+</div>
+<div class="flex flex-col items-end">
+<span class="text-[10px] font-mono text-primary uppercase tracking-widest">GGUF</span>
+<span class="text-[10px] text-on-surface-variant">Mistral Architecture</span>
+</div>
+</div>
+<h3 class="text-lg font-headline font-bold mb-1 truncate">Mistral-7B-v0.2</h3>
+<p class="text-sm text-on-surface-variant mb-6">Mistral AI · 840K Downloads</p>
+<div class="flex items-center justify-between mt-auto">
+<div class="space-y-0.5">
+<span class="text-[10px] uppercase font-bold text-on-surface-variant/40 block">File Size</span>
+<span class="text-sm font-medium">4.10 GB</span>
+</div>
+<button class="flex items-center gap-2 bg-tertiary text-on-tertiary px-4 py-2 rounded-lg text-sm font-bold hover:brightness-110 transition-all">
+<span class="material-symbols-outlined text-sm" data-icon="download">download</span>
+                            Download
+                        </button>
+</div>
+</div>
+<!-- Model Card 3 (Active State) -->
+<div class="bg-surface-container-lowest p-5 rounded-xl border border-primary/20 bg-primary/5 transition-all group">
+<div class="flex justify-between items-start mb-4">
+<div class="w-10 h-10 rounded-lg bg-primary/20 flex items-center justify-center text-primary">
+<span class="material-symbols-outlined" data-icon="bolt">bolt</span>
+</div>
+<div class="flex flex-col items-end">
+<span class="text-[10px] font-mono text-tertiary uppercase tracking-widest">BF16</span>
+<span class="text-[10px] text-on-surface-variant">Phi Architecture</span>
+</div>
+</div>
+<h3 class="text-lg font-headline font-bold mb-1 truncate">Phi-3-mini-4k</h3>
+<p class="text-sm text-on-surface-variant mb-6">Microsoft · 450K Downloads</p>
+<div class="flex items-center justify-between mt-auto">
+<div class="space-y-0.5">
+<span class="text-[10px] uppercase font-bold text-on-surface-variant/40 block">File Size</span>
+<span class="text-sm font-medium">7.6 GB</span>
+</div>
+<div class="flex items-center gap-2 text-primary font-bold text-sm">
+<span class="material-symbols-outlined text-sm" data-icon="check_circle" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+                            Installed
+                        </div>
+</div>
+</div>
+<!-- Model Card 4 -->
+<div class="bg-surface-container-lowest p-5 rounded-xl border border-outline-variant/10 hover:bg-surface-container-low transition-all group">
+<div class="flex justify-between items-start mb-4">
+<div class="w-10 h-10 rounded-lg bg-on-surface-variant/10 flex items-center justify-center text-on-surface-variant">
+<span class="material-symbols-outlined" data-icon="code">code</span>
+</div>
+<div class="flex flex-col items-end">
+<span class="text-[10px] font-mono text-secondary uppercase tracking-widest">Q4_K_S</span>
+<span class="text-[10px] text-on-surface-variant">Starcoder Architecture</span>
+</div>
+</div>
+<h3 class="text-lg font-headline font-bold mb-1 truncate">DeepSeek-Coder-33B</h3>
+<p class="text-sm text-on-surface-variant mb-6">DeepSeek · 210K Downloads</p>
+<div class="flex items-center justify-between mt-auto">
+<div class="space-y-0.5">
+<span class="text-[10px] uppercase font-bold text-on-surface-variant/40 block">File Size</span>
+<span class="text-sm font-medium">19.2 GB</span>
+</div>
+<button class="flex items-center gap-2 bg-tertiary text-on-tertiary px-4 py-2 rounded-lg text-sm font-bold hover:brightness-110 transition-all">
+<span class="material-symbols-outlined text-sm" data-icon="download">download</span>
+                            Download
+                        </button>
+</div>
+</div>
+<!-- Model Card 5 -->
+<div class="bg-surface-container-lowest p-5 rounded-xl border border-outline-variant/10 hover:bg-surface-container-low transition-all group">
+<div class="flex justify-between items-start mb-4">
+<div class="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
+<span class="material-symbols-outlined" data-icon="psychology">psychology</span>
+</div>
+<div class="flex flex-col items-end">
+<span class="text-[10px] font-mono text-primary uppercase tracking-widest">Q6_K</span>
+<span class="text-[10px] text-on-surface-variant">Gemma Architecture</span>
+</div>
+</div>
+<h3 class="text-lg font-headline font-bold mb-1 truncate">Gemma-2b-it-GGUF</h3>
+<p class="text-sm text-on-surface-variant mb-6">Google · 610K Downloads</p>
+<div class="flex items-center justify-between mt-auto">
+<div class="space-y-0.5">
+<span class="text-[10px] uppercase font-bold text-on-surface-variant/40 block">File Size</span>
+<span class="text-sm font-medium">1.8 GB</span>
+</div>
+<button class="flex items-center gap-2 bg-tertiary text-on-tertiary px-4 py-2 rounded-lg text-sm font-bold hover:brightness-110 transition-all">
+<span class="material-symbols-outlined text-sm" data-icon="download">download</span>
+                            Download
+                        </button>
+</div>
+</div>
+<!-- Model Card 6 (Downloading State) -->
+<div class="bg-surface-container-lowest p-5 rounded-xl border border-tertiary/20 bg-tertiary/5 transition-all group">
+<div class="flex justify-between items-start mb-4">
+<div class="w-10 h-10 rounded-lg bg-tertiary/20 flex items-center justify-center text-tertiary">
+<span class="material-symbols-outlined" data-icon="sync">sync</span>
+</div>
+<div class="flex flex-col items-end">
+<span class="text-[10px] font-mono text-tertiary uppercase tracking-widest">Q4_K_M</span>
+<span class="text-[10px] text-on-surface-variant">Mistral Architecture</span>
+</div>
+</div>
+<h3 class="text-lg font-headline font-bold mb-1 truncate">Hermes-2-Pro-Mistral-7B</h3>
+<p class="text-sm text-on-surface-variant mb-4">NousResearch · 125K Downloads</p>
+<div class="space-y-3">
+<div class="w-full bg-surface-container-high h-1.5 rounded-full overflow-hidden">
+<div class="bg-tertiary h-full w-[42%]"></div>
+</div>
+<div class="flex justify-between items-center text-[10px] font-bold uppercase tracking-tighter">
+<span class="text-tertiary">Downloading... 42%</span>
+<span class="text-on-surface-variant">2.1GB / 4.1GB</span>
+</div>
+</div>
+</div>
+</div>
+</section>
+</main>
+<!-- Global Download Progress Bar (Predictive Component Overlay) -->
+<div class="fixed bottom-8 left-24 right-4 z-50">
+<div class="glass-panel p-4 rounded-xl shadow-2xl flex items-center gap-6 max-w-4xl mx-auto border border-outline-variant/10">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded bg-tertiary/20 flex items-center justify-center text-tertiary">
+<span class="material-symbols-outlined text-lg" data-icon="download">download</span>
+</div>
+<div>
+<p class="text-xs font-bold leading-none">Active Task</p>
+<p class="text-[10px] text-on-surface-variant font-mono">Hermes-2-Pro-Mistral-7B.gguf</p>
+</div>
+</div>
+<div class="flex-1 flex flex-col gap-1">
+<div class="w-full bg-surface-container-lowest h-2 rounded-full overflow-hidden border border-outline-variant/5">
+<div class="bg-tertiary h-full w-[42%]"></div>
+</div>
+<div class="flex justify-between text-[10px] font-mono text-on-surface-variant">
+<span>4.2 MB/s</span>
+<span>Est. 8m 12s</span>
+</div>
+</div>
+<div class="flex items-center gap-2">
+<button class="p-2 hover:bg-surface-container-highest rounded-lg transition-colors text-on-surface-variant">
+<span class="material-symbols-outlined text-sm" data-icon="pause">pause</span>
+</button>
+<button class="p-2 hover:bg-surface-container-highest rounded-lg transition-colors text-on-surface-variant">
+<span class="material-symbols-outlined text-sm" data-icon="close">close</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Footer (Shared Component) -->
+<footer class="fixed bottom-0 right-0 left-20 z-50 flex items-center justify-between px-4 bg-[#0e0e0f] text-[#66dd8b] font-['Inter'] text-[10px] uppercase tracking-widest docked full-width bottom-0 h-8 border-t border-[#1c1b1c]">
+<div class="flex items-center gap-4">
+<span>System Ready</span>
+<span class="text-[#c1c6d7] opacity-40">|</span>
+<span class="text-[#c1c6d7]">Server: Localhost:8080</span>
+</div>
+<div class="flex items-center gap-6">
+<div class="flex items-center gap-1">
+<span class="material-symbols-outlined text-[12px]" data-icon="memory">memory</span>
+<span>VRAM: 6.2GB / 8.0GB</span>
+</div>
+<div class="flex items-center gap-1">
+<span class="material-symbols-outlined text-[12px]" data-icon="history">history</span>
+<span>Llama-3-8B-Instruct</span>
+</div>
+</div>
+</footer>
+</body></html>

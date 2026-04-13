@@ -1,0 +1,113 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  html,
+  body,
+  #app {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  body {
+    background-color: #131314;
+    color: #e5e2e3;
+    font-family: "Inter", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  ::selection {
+    background: rgba(76, 214, 255, 0.3);
+    color: #4cd6ff;
+  }
+
+  /* Obsidian Scrollbar */
+  ::-webkit-scrollbar {
+    width: 4px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #0e0e0f;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #2a2a2b;
+    border-radius: 10px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #353436;
+  }
+
+  /* Material Symbols config */
+  .material-symbols-outlined {
+    font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24;
+    vertical-align: middle;
+    user-select: none;
+  }
+}
+
+@layer components {
+  /* Glass Panel — for floating overlays */
+  .glass-panel {
+    background: rgba(53, 52, 54, 0.8);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+  }
+
+  /* Kinetic Monolith Shadow — primary glow */
+  .kinetic-shadow {
+    box-shadow: 0 0 40px rgba(76, 214, 255, 0.04);
+  }
+
+  /* Focus glow for inputs */
+  .focus-glow:focus {
+    box-shadow: 0 0 0 1px rgba(76, 214, 255, 0.3);
+    outline: none;
+  }
+
+  /* No-scrollbar utility */
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  /* Token cursor animation for streaming */
+  .token-cursor {
+    display: inline-block;
+    width: 8px;
+    height: 1.2em;
+    background: #4cd6ff;
+    vertical-align: middle;
+    margin-left: 4px;
+    animation: blink 1s step-end infinite;
+  }
+
+  @keyframes blink {
+    50% {
+      opacity: 0;
+    }
+  }
+
+  /* Pulse glow for live indicators */
+  .pulse-glow {
+    animation: pulseGlow 2s ease-in-out infinite;
+  }
+  @keyframes pulseGlow {
+    0%,
+    100% {
+      box-shadow: 0 0 4px rgba(102, 221, 139, 0.4);
+    }
+    50% {
+      box-shadow: 0 0 12px rgba(102, 221, 139, 0.7);
+    }
+  }
+}

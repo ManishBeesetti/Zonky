@@ -1,0 +1,32 @@
+[package]
+name = "zonky-tui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Terminal UI for Zonky LLM inference engine"
+
+[[bin]]
+name = "zonky-tui"
+path = "src/main.rs"
+
+[dependencies]
+zonky-core = { workspace = true }
+
+# Async
+tokio = { workspace = true }
+
+# TUI
+ratatui = { workspace = true }
+crossterm = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+
+# Utilities
+anyhow = { workspace = true }
+bytesize = { workspace = true }
+unicode-width = "0.2"

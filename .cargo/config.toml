@@ -1,0 +1,14 @@
+[build]
+# Uncomment for CUDA support on Linux
+# rustflags = ["-C", "link-arg=-L/usr/local/cuda/lib64"]
+
+[target.x86_64-unknown-linux-gnu]
+# rustflags = ["-C", "link-arg=-L/usr/local/cuda/lib64"]
+
+[target.aarch64-apple-darwin]
+# Metal is auto-detected on macOS
+
+[alias]
+xt = "test --workspace"
+xb = "build --workspace"
+xc = "clippy --workspace -- -D warnings"

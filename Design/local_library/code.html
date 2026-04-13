@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=Space+Grotesk:wght@500;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "surface-tint": "#4cd6ff",
+                    "primary-fixed": "#b7eaff",
+                    "surface-container-high": "#2a2a2b",
+                    "on-secondary": "#003919",
+                    "on-secondary-fixed-variant": "#005227",
+                    "surface-bright": "#3a393a",
+                    "tertiary-container": "#ad79e1",
+                    "on-primary-fixed-variant": "#004e60",
+                    "surface-container-lowest": "#0e0e0f",
+                    "error": "#ffb4ab",
+                    "on-tertiary-fixed": "#2c0051",
+                    "secondary-fixed": "#83fba5",
+                    "tertiary": "#ddb8ff",
+                    "tertiary-fixed": "#f0dbff",
+                    "on-error": "#690005",
+                    "surface-dim": "#131314",
+                    "surface-container-low": "#1c1b1c",
+                    "secondary-fixed-dim": "#66dd8b",
+                    "surface": "#131314",
+                    "on-tertiary-fixed-variant": "#5f2c90",
+                    "on-secondary-container": "#003115",
+                    "surface-container-highest": "#353436",
+                    "primary-container": "#009dc1",
+                    "secondary-container": "#25a55a",
+                    "on-secondary-fixed": "#00210c",
+                    "inverse-on-surface": "#313031",
+                    "on-background": "#e5e2e3",
+                    "on-primary-container": "#002e3a",
+                    "error-container": "#93000a",
+                    "inverse-surface": "#e5e2e3",
+                    "on-tertiary": "#470e78",
+                    "on-tertiary-container": "#400071",
+                    "on-primary": "#003543",
+                    "primary-fixed-dim": "#4cd6ff",
+                    "on-primary-fixed": "#001f28",
+                    "outline-variant": "#414754",
+                    "on-error-container": "#ffdad6",
+                    "surface-variant": "#353436",
+                    "primary": "#4cd6ff",
+                    "on-surface-variant": "#c1c6d7",
+                    "inverse-primary": "#00677f",
+                    "outline": "#8b90a0",
+                    "tertiary-fixed-dim": "#ddb8ff",
+                    "secondary": "#66dd8b",
+                    "background": "#131314",
+                    "on-surface": "#e5e2e3",
+                    "surface-container": "#201f20"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.125rem",
+                    "lg": "0.25rem",
+                    "xl": "0.5rem",
+                    "full": "0.75rem"
+            },
+            "fontFamily": {
+                    "headline": ["Space Grotesk"],
+                    "body": ["Inter"],
+                    "label": ["Inter"]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+      .material-symbols-outlined {
+        font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      }
+      body {
+        background-color: #131314;
+        color: #e5e2e3;
+        font-family: 'Inter', sans-serif;
+      }
+      .glass-panel {
+        background: rgba(53, 52, 54, 0.8);
+        backdrop-filter: blur(24px);
+      }
+      .no-scrollbar::-webkit-scrollbar {
+        display: none;
+      }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="flex min-h-screen overflow-hidden selection:bg-primary selection:text-on-primary">
+<!-- NavigationDrawer Shell -->
+<nav class="fixed left-0 top-0 h-full flex flex-col items-center py-6 bg-[#0e0e0f] h-screen w-20 flex-col z-50">
+<div class="mb-10">
+<span class="text-[#4cd6ff] font-bold tracking-widest font-['Space_Grotesk']">ZONKY</span>
+</div>
+<div class="flex flex-col gap-6 flex-1">
+<a class="p-3 text-[#c1c6d7] opacity-60 hover:bg-[#353436] hover:opacity-100 transition-all scale-95 duration-100 flex flex-col items-center gap-1 group" href="#">
+<span class="material-symbols-outlined">dashboard</span>
+<span class="text-[10px] font-['Space_Grotesk'] tracking-tight">Dashboard</span>
+</a>
+<a class="p-3 text-[#4cd6ff] bg-[#353436] rounded-lg transition-all scale-95 duration-100 flex flex-col items-center gap-1" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">library_books</span>
+<span class="text-[10px] font-['Space_Grotesk'] tracking-tight">Library</span>
+</a>
+<a class="p-3 text-[#c1c6d7] opacity-60 hover:bg-[#353436] hover:opacity-100 transition-all scale-95 duration-100 flex flex-col items-center gap-1" href="#">
+<span class="material-symbols-outlined">extension</span>
+<span class="text-[10px] font-['Space_Grotesk'] tracking-tight">Models</span>
+</a>
+<a class="p-3 text-[#c1c6d7] opacity-60 hover:bg-[#353436] hover:opacity-100 transition-all scale-95 duration-100 flex flex-col items-center gap-1" href="#">
+<span class="material-symbols-outlined">chat_bubble</span>
+<span class="text-[10px] font-['Space_Grotesk'] tracking-tight">Chat</span>
+</a>
+</div>
+<a class="p-3 text-[#c1c6d7] opacity-60 hover:bg-[#353436] hover:opacity-100 transition-all scale-95 duration-100 flex flex-col items-center gap-1" href="#">
+<span class="material-symbols-outlined">settings</span>
+<span class="text-[10px] font-['Space_Grotesk'] tracking-tight">Settings</span>
+</a>
+</nav>
+<!-- TopAppBar Shell -->
+<header class="fixed top-0 right-0 left-20 z-40 flex items-center justify-between px-6 h-14 bg-[#131314]/80 backdrop-blur-xl">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-[#4cd6ff]">search</span>
+<span class="font-['Inter'] text-sm text-[#c1c6d7]">System Search</span>
+</div>
+<div class="flex items-center gap-4">
+<div class="flex items-center gap-2 px-3 py-1 bg-surface-container-low rounded-full">
+<span class="w-2 h-2 bg-secondary rounded-full"></span>
+<span class="text-[10px] font-mono text-secondary uppercase tracking-tighter">Engine Active</span>
+</div>
+<span class="material-symbols-outlined text-[#c1c6d7] hover:text-[#4cd6ff] cursor-pointer transition-colors duration-200">more_vert</span>
+</div>
+<div class="absolute bottom-0 left-0 right-0 bg-[#1c1b1c] h-[1px]"></div>
+</header>
+<!-- Main Content Area -->
+<main class="flex-1 ml-20 mt-14 mb-8 overflow-y-auto no-scrollbar bg-background">
+<div class="max-w-6xl mx-auto p-8">
+<!-- Page Header / Hero -->
+<div class="flex flex-col mb-10">
+<h1 class="text-4xl font-headline font-bold text-on-surface mb-2">Local Library</h1>
+<p class="text-on-surface-variant text-sm max-w-2xl">Manage your localized neural assets. Direct GGUF loading and hardware-accelerated memory allocation for efficient local inference.</p>
+</div>
+<!-- In Progress Section (Bento Style) -->
+<section class="mb-12">
+<div class="flex items-center gap-3 mb-6">
+<span class="material-symbols-outlined text-tertiary">downloading</span>
+<h2 class="font-headline text-lg uppercase tracking-widest text-tertiary">In Progress</h2>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+<!-- Download Card 1 -->
+<div class="bg-surface-container-low p-5 rounded-xl flex flex-col gap-4 border-l-2 border-tertiary">
+<div class="flex justify-between items-start">
+<div>
+<h3 class="font-headline font-bold text-on-surface">Llama-3-70B-Instruct-v1</h3>
+<p class="text-[10px] font-mono text-on-surface-variant">FORMAT: GGUF (Q4_K_M)</p>
+</div>
+<span class="text-xs font-mono text-tertiary">42%</span>
+</div>
+<div class="w-full bg-surface-container-highest h-1 rounded-full overflow-hidden">
+<div class="bg-tertiary h-full w-[42%]"></div>
+</div>
+<div class="flex justify-between items-center text-[10px] font-mono text-on-surface-variant">
+<span>8.2 GB / 21.4 GB</span>
+<span>12.4 MB/s</span>
+</div>
+</div>
+<!-- Download Card 2 -->
+<div class="bg-surface-container-low p-5 rounded-xl flex flex-col gap-4 border-l-2 border-tertiary opacity-80">
+<div class="flex justify-between items-start">
+<div>
+<h3 class="font-headline font-bold text-on-surface">Mistral-7B-v0.3</h3>
+<p class="text-[10px] font-mono text-on-surface-variant">FORMAT: GGUF (Q8_0)</p>
+</div>
+<span class="text-xs font-mono text-on-surface-variant">QUEUED</span>
+</div>
+<div class="w-full bg-surface-container-highest h-1 rounded-full overflow-hidden">
+<div class="bg-surface-container-highest h-full w-0"></div>
+</div>
+<div class="flex justify-between items-center text-[10px] font-mono text-on-surface-variant">
+<span>0 GB / 7.2 GB</span>
+<span>WAITING</span>
+</div>
+</div>
+</div>
+</section>
+<!-- Downloaded Models List -->
+<section>
+<div class="flex items-center justify-between mb-6">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary">inventory_2</span>
+<h2 class="font-headline text-lg uppercase tracking-widest text-primary">Downloaded Models</h2>
+</div>
+<div class="flex gap-2">
+<button class="bg-surface-container-high px-4 py-2 rounded-lg text-xs font-headline flex items-center gap-2 hover:bg-surface-container-highest transition-colors">
+<span class="material-symbols-outlined text-sm">filter_list</span> Filter
+                        </button>
+<button class="bg-surface-container-high px-4 py-2 rounded-lg text-xs font-headline flex items-center gap-2 hover:bg-surface-container-highest transition-colors">
+<span class="material-symbols-outlined text-sm">sort</span> Sort
+                        </button>
+</div>
+</div>
+<div class="flex flex-col gap-1">
+<!-- Table Header -->
+<div class="grid grid-cols-12 px-6 py-3 text-[10px] font-mono uppercase tracking-widest text-on-surface-variant">
+<div class="col-span-5">Model Identity</div>
+<div class="col-span-2">Format</div>
+<div class="col-span-2">Requirements</div>
+<div class="col-span-2">Added</div>
+<div class="col-span-1 text-right">Actions</div>
+</div>
+<!-- Model Row 1 -->
+<div class="grid grid-cols-12 items-center px-6 py-4 bg-surface-container-low hover:bg-surface-container transition-all group rounded-lg mb-2">
+<div class="col-span-5 flex flex-col">
+<span class="font-headline font-bold text-primary group-hover:text-surface-tint">Llama-3-8B-Instruct</span>
+<span class="text-[10px] font-mono text-on-surface-variant">~/.zonky/models/llama-3-8b.gguf</span>
+</div>
+<div class="col-span-2">
+<span class="px-2 py-0.5 bg-surface-container-highest rounded text-[10px] font-mono">GGUF (Q4_K_M)</span>
+</div>
+<div class="col-span-2">
+<span class="text-xs font-mono text-secondary flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">memory</span> ~5.5GB VRAM
+                            </span>
+</div>
+<div class="col-span-2 text-xs font-mono text-on-surface-variant">2024-05-12</div>
+<div class="col-span-1 flex justify-end gap-3">
+<button class="text-primary hover:scale-110 transition-transform">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">play_arrow</span>
+</button>
+<button class="text-on-surface-variant hover:text-error transition-colors">
+<span class="material-symbols-outlined">delete</span>
+</button>
+</div>
+</div>
+<!-- Model Row 2 -->
+<div class="grid grid-cols-12 items-center px-6 py-4 bg-surface-container-low hover:bg-surface-container transition-all group rounded-lg mb-2">
+<div class="col-span-5 flex flex-col">
+<span class="font-headline font-bold text-primary group-hover:text-surface-tint">Phi-3-Mini-4k-Instruct</span>
+<span class="text-[10px] font-mono text-on-surface-variant">~/.zonky/models/phi-3-mini.gguf</span>
+</div>
+<div class="col-span-2">
+<span class="px-2 py-0.5 bg-surface-container-highest rounded text-[10px] font-mono">GGUF (FP16)</span>
+</div>
+<div class="col-span-2">
+<span class="text-xs font-mono text-secondary flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">memory</span> ~2.2GB VRAM
+                            </span>
+</div>
+<div class="col-span-2 text-xs font-mono text-on-surface-variant">2024-06-01</div>
+<div class="col-span-1 flex justify-end gap-3">
+<button class="text-primary hover:scale-110 transition-transform">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">play_arrow</span>
+</button>
+<button class="text-on-surface-variant hover:text-error transition-colors">
+<span class="material-symbols-outlined">delete</span>
+</button>
+</div>
+</div>
+<!-- Model Row 3 -->
+<div class="grid grid-cols-12 items-center px-6 py-4 bg-surface-container-low hover:bg-surface-container transition-all group rounded-lg mb-2">
+<div class="col-span-5 flex flex-col">
+<span class="font-headline font-bold text-primary group-hover:text-surface-tint">Stable-Code-Instruct-3B</span>
+<span class="text-[10px] font-mono text-on-surface-variant">~/.zonky/models/stable-code-3b.gguf</span>
+</div>
+<div class="col-span-2">
+<span class="px-2 py-0.5 bg-surface-container-highest rounded text-[10px] font-mono">GGUF (Q5_1)</span>
+</div>
+<div class="col-span-2">
+<span class="text-xs font-mono text-secondary flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">memory</span> ~3.1GB VRAM
+                            </span>
+</div>
+<div class="col-span-2 text-xs font-mono text-on-surface-variant">2024-05-28</div>
+<div class="col-span-1 flex justify-end gap-3">
+<button class="text-primary hover:scale-110 transition-transform">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">play_arrow</span>
+</button>
+<button class="text-on-surface-variant hover:text-error transition-colors">
+<span class="material-symbols-outlined">delete</span>
+</button>
+</div>
+</div>
+<!-- Model Row 4 (Heavy) -->
+<div class="grid grid-cols-12 items-center px-6 py-4 bg-surface-container-low hover:bg-surface-container transition-all group rounded-lg mb-2">
+<div class="col-span-5 flex flex-col">
+<span class="font-headline font-bold text-primary group-hover:text-surface-tint">Yi-1.5-34B-Chat</span>
+<span class="text-[10px] font-mono text-on-surface-variant">~/.zonky/models/yi-1.5-34b.gguf</span>
+</div>
+<div class="col-span-2">
+<span class="px-2 py-0.5 bg-surface-container-highest rounded text-[10px] font-mono">GGUF (Q4_0)</span>
+</div>
+<div class="col-span-2">
+<span class="text-xs font-mono text-error flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">warning</span> ~19.2GB VRAM
+                            </span>
+</div>
+<div class="col-span-2 text-xs font-mono text-on-surface-variant">2024-06-04</div>
+<div class="col-span-1 flex justify-end gap-3">
+<button class="text-primary hover:scale-110 transition-transform">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">play_arrow</span>
+</button>
+<button class="text-on-surface-variant hover:text-error transition-colors">
+<span class="material-symbols-outlined">delete</span>
+</button>
+</div>
+</div>
+</div>
+</section>
+</div>
+</main>
+<!-- Footer Shell -->
+<footer class="fixed bottom-0 right-0 left-20 z-50 flex items-center justify-between px-4 bg-[#0e0e0f] h-8 font-['Inter'] text-[10px] uppercase tracking-widest text-[#66dd8b]">
+<div class="flex items-center gap-4">
+<span>System Ready</span>
+<div class="flex items-center gap-2">
+<span class="w-1.5 h-1.5 bg-secondary rounded-full animate-pulse"></span>
+<span class="text-on-surface-variant">Llama-3-8B-Instruct Active</span>
+</div>
+</div>
+<div class="flex items-center gap-6">
+<span class="text-on-surface-variant">Server: Localhost:8080</span>
+<span class="text-[#66dd8b]">VRAM: 6.2GB / 8.0GB</span>
+</div>
+<div class="absolute top-0 left-0 right-0 bg-[#1c1b1c] h-[1px]"></div>
+</footer>
+</body></html>

@@ -1,0 +1,36 @@
+[package]
+name = "zonky-ui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Tauri v2 desktop application for Zonky LLM inference engine"
+
+[[bin]]
+name = "zonky-ui"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+zonky-core = { workspace = true }
+zonky-server = { path = "../zonky-server" }
+axum = { workspace = true }
+
+# Tauri
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+
+# Async
+tokio = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }

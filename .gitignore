@@ -1,0 +1,35 @@
+# Rust
+/target/
+**/*.rs.bk
+Cargo.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Model cache (local dev)
+models/
+*.gguf
+*.safetensors
+*.bin
+
+# Environment
+.env
+.env.local
+
+# Node (for Tauri frontend)
+node_modules/
+dist/
+.svelte-kit/
+
+# Logs
+*.log
+Build_Plan.md
+Design/zonky_obsidian/DESIGN.md
+docs/supported-quantizations.md
