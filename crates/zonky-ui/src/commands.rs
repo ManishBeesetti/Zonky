@@ -100,6 +100,13 @@ pub struct ChatResponse {
     pub tokens_used: u32,
 }
 
+fn build_embedded_server_state(
+    manager: Arc<ModelManager>,
+    config: ZonkyConfig,
+) -> Arc<zonky_server::state::AppState> {
+    Arc::new(zonky_server::state::AppState::new(manager, config))
+}
+
 fn get_hub_client() -> Result<HubClient, String> {
     let config = ZonkyConfig::load().unwrap_or_default();
     HubClient::new(config.cache_dir).map_err(|e| e.to_string())
@@ -154,14 +161,16 @@ fn read_meminfo() -> (u64, u64) {
                 .split_whitespace()
                 .nth(1)
                 .and_then(|v| v.parse::<u64>().ok())
-                .unwrap_or(0) * 1024;
+                .unwrap_or(0)
+                * 1024;
         }
         if line.starts_with("MemAvailable:") {
             available = line
                 .split_whitespace()
                 .nth(1)
                 .and_then(|v| v.parse::<u64>().ok())
-                .unwrap_or(0) * 1024;
+                .unwrap_or(0)
+                * 1024;
         }
     }
     (total, available)
@@ -199,7 +208,10 @@ pub fn get_config() -> Result<serde_json::Value, String> {
 #[tauri::command]
 pub async fn search_models(query: String, limit: usize) -> Result<Vec<SearchResult>, String> {
     let hub = get_hub_client()?;
-    let results = hub.search_models(&query, limit).await.map_err(|e| e.to_string())?;
+    let results = hub
+        .search_models(&query, limit)
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(results
         .into_iter()
         .map(|m| SearchResult {
@@ -236,7 +248,10 @@ pub fn list_local_models(
 #[tauri::command]
 pub async fn list_gguf_files(repo_id: String) -> Result<Vec<GgufFileInfo>, String> {
     let hub = get_hub_client()?;
-    let files = hub.list_gguf_files(&repo_id).await.map_err(|e| e.to_string())?;
+    let files = hub
+        .list_gguf_files(&repo_id)
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(files
         .into_iter()
         .map(|f| GgufFileInfo {
@@ -258,12 +273,15 @@ pub async fn pull_model(
     let app_clone = app.clone();
 
     hub.download_model(&repo_id, &filename, move |progress| {
-        let _ = app_clone.emit("download-progress", serde_json::json!({
-            "id": &dl_id_clone,
-            "downloaded": progress.downloaded,
-            "total": progress.total,
-            "speed": progress.speed_bytes_per_sec,
-        }));
+        let _ = app_clone.emit(
+            "download-progress",
+            serde_json::json!({
+                "id": &dl_id_clone,
+                "downloaded": progress.downloaded,
+                "total": progress.total,
+                "speed": progress.speed_bytes_per_sec,
+            }),
+        );
     })
     .await
     .map_err(|e| e.to_string())?;
@@ -343,7 +361,7 @@ pub struct ServerStatusResponse {
 
 #[tauri::command]
 pub async fn start_server(
-    _manager: State<'_, Arc<ModelManager>>,
+    manager: State<'_, Arc<ModelManager>>,
     server: State<'_, Arc<Mutex<ServerHandle>>>,
 ) -> Result<ServerStatusResponse, String> {
     let mut handle = server.lock().await;
@@ -361,10 +379,8 @@ pub async fn start_server(
     let port = config.server.port;
     let bind_addr = format!("{host}:{port}");
 
-    // Create a new ModelManager for the server (shares the same cache)
-    let server_manager = ModelManager::new(config.clone())
-        .map_err(|e| format!("Failed to init server manager: {e}"))?;
-    let state = Arc::new(zonky_server::state::AppState::new(server_manager, config));
+    // Reuse the same ModelManager used by desktop commands so loaded model state is shared.
+    let state = build_embedded_server_state(Arc::clone(&manager), config);
     let app = zonky_server::build_router(state);
 
     let listener = tokio::net::TcpListener::bind(&bind_addr)
@@ -390,10 +406,24 @@ pub async fn start_server(
     })
 }
 
+#[cfg(test)]
+mod tests {
+    use super::build_embedded_server_state;
+    use std::sync::Arc;
+    use zonky_core::{ModelManager, ZonkyConfig};
+
+    #[test]
+    fn embedded_server_state_reuses_shared_manager_arc() {
+        let config = ZonkyConfig::default();
+        let manager =
+            Arc::new(ModelManager::new(config.clone()).expect("manager should initialize"));
+        let state = build_embedded_server_state(Arc::clone(&manager), config);
+        assert!(Arc::ptr_eq(&manager, &state.manager));
+    }
+}
+
 #[tauri::command]
-pub async fn stop_server(
-    server: State<'_, Arc<Mutex<ServerHandle>>>,
-) -> Result<String, String> {
+pub async fn stop_server(server: State<'_, Arc<Mutex<ServerHandle>>>) -> Result<String, String> {
     let mut handle = server.lock().await;
     if let Some(task) = handle.abort_handle.take() {
         task.abort();

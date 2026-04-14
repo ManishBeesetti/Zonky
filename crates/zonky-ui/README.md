@@ -36,6 +36,16 @@ cargo tauri dev
 
 This starts the Vite dev server and the Tauri app with hot reload.
 
+### Windows Shortcut
+
+From the workspace root you can also run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\run-ui.ps1
+```
+
+This script starts Vite (if needed) and launches `zonky-ui`.
+
 ## Production Build
 
 ```bash

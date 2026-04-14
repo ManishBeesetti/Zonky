@@ -7,6 +7,20 @@ Local-first LLM workspace with:
 - `zonky-tui` terminal UI
 - `zonky-ui` desktop UI (Tauri + Svelte)
 
+## Run UI (Windows)
+
+Use the helper script from the repository root:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\run-ui.ps1
+```
+
+The script will:
+- validate required toolchain and build prerequisites
+- install frontend dependencies if needed
+- start the Vite dev server on `127.0.0.1:5173` if not already running
+- launch `zonky-ui`
+
 ## Windows Prerequisites
 
 Install these before building:
@@ -62,7 +76,11 @@ This verifies:
 .\run-ui.ps1 -KillExisting
 ```
 
-## Build and Test
+If startup fails, check:
+- `crates/zonky-ui/frontend/vite.out.log`
+- `crates/zonky-ui/frontend/vite.err.log`
+
+## Build And Test
 
 From repo root:
 
