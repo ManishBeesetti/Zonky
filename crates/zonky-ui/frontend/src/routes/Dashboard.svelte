@@ -71,7 +71,7 @@
   }
 
   function formatSize(bytes) {
-    if (!bytes) return "—";
+    if (!bytes) return "-";
     const gb = bytes / (1024 * 1024 * 1024);
     if (gb >= 1) return gb.toFixed(2) + " GB";
     return (bytes / (1024 * 1024)).toFixed(0) + " MB";
@@ -183,7 +183,7 @@
             </div>
             <div class="bg-surface-container-low rounded-lg p-3">
               <p class="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold mb-1">GPU Vendor</p>
-              <p class="text-sm font-mono text-tertiary">{hw.gpuVendor || "—"}</p>
+              <p class="text-sm font-mono text-tertiary">{hw.gpuVendor || "-"}</p>
             </div>
           </div>
         </div>
@@ -199,12 +199,12 @@
       <div class="space-y-4 py-4">
         <div class="bg-surface-container-low rounded-lg p-4 border-l-2 border-primary">
           <p class="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold">Throughput</p>
-          <p class="font-headline text-3xl text-primary font-bold">—</p>
+          <p class="font-headline text-3xl text-primary font-bold">-</p>
           <p class="text-[10px] uppercase tracking-widest text-on-surface-variant">tok/s</p>
         </div>
         <div class="bg-surface-container-low rounded-lg p-4 border-l-2 border-tertiary">
           <p class="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold">Latency</p>
-          <p class="font-headline text-3xl text-tertiary font-bold">—</p>
+          <p class="font-headline text-3xl text-tertiary font-bold">-</p>
           <p class="text-[10px] uppercase tracking-widest text-on-surface-variant">ms (first token)</p>
         </div>
         <div class="bg-surface-container-low rounded-lg p-4 border-l-2 border-secondary">

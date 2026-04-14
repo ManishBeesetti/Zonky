@@ -9,7 +9,7 @@ pub fn run(install: bool) {
     println!();
     println!(
         "{} Zonky GPU Setup",
-        style("🔧").bold()
+        style("[SETUP]").bold()
     );
     println!(
         "   GPU: {} ({})",
@@ -21,7 +21,7 @@ pub fn run(install: bool) {
     if status.deps.is_empty() {
         println!(
             "  {} {}",
-            style("✓").green().bold(),
+            style("[OK]").green().bold(),
             status.summary
         );
         println!();
@@ -34,9 +34,9 @@ pub fn run(install: bool) {
 
     for dep in &status.deps {
         let icon = if dep.installed {
-            style("✓").green().bold()
+            style("[OK]").green().bold()
         } else {
-            style("✗").red().bold()
+            style("[ERR]").red().bold()
         };
 
         let status_text = if dep.installed {
@@ -46,7 +46,7 @@ pub fn run(install: bool) {
         };
 
         println!(
-            "  {icon} {:<28} [{status_text}]  — {}",
+            "  {icon} {:<28} [{status_text}]   {}",
             style(&dep.name).bold(),
             style(&dep.description).dim()
         );
@@ -58,7 +58,7 @@ pub fn run(install: bool) {
     if status.needs_reboot {
         println!(
             "  {} {}",
-            style("⚠").yellow().bold(),
+            style("[WARN]").yellow().bold(),
             style("Group membership was updated but requires a reboot to take effect.").yellow()
         );
         println!();
@@ -69,7 +69,7 @@ pub fn run(install: bool) {
             .interact()
             .unwrap_or(false)
         {
-            println!("\n  {} Rebooting...\n", style("→").cyan().bold());
+            println!("\n  {} Rebooting...\n", style("[->]").cyan().bold());
             let _ = std::process::Command::new("sudo")
                 .arg("reboot")
                 .status();
@@ -83,7 +83,7 @@ pub fn run(install: bool) {
     if status.compute_ready {
         println!(
             "  {} {}",
-            style("✓").green().bold(),
+            style("[OK]").green().bold(),
             style("All dependencies satisfied. GPU compute is ready!").green().bold()
         );
         println!();
@@ -94,11 +94,11 @@ pub fn run(install: bool) {
     let missing: Vec<&gpu::setup::Dependency> = status.deps.iter().filter(|d| !d.installed).collect();
     println!(
         "  {} {} missing:",
-        style("⚠").yellow().bold(),
+        style("[WARN]").yellow().bold(),
         missing.len()
     );
     for dep in &missing {
-        println!("    • {}: {}", style(&dep.name).bold(), dep.description);
+        println!("     {}: {}", style(&dep.name).bold(), dep.description);
     }
     println!();
 
@@ -106,7 +106,7 @@ pub fn run(install: bool) {
         if install {
             println!(
                 "  {} Installing dependencies...\n",
-                style("→").cyan().bold()
+                style("[->]").cyan().bold()
             );
             println!("  {}\n", style(&cmd).dim());
 
@@ -122,7 +122,7 @@ pub fn run(install: bool) {
                     }
                     println!(
                         "  {} Installation complete!",
-                        style("✓").green().bold()
+                        style("[OK]").green().bold()
                     );
 
                     // Re-check
@@ -130,13 +130,13 @@ pub fn run(install: bool) {
                     if recheck.compute_ready {
                         println!(
                             "  {} GPU compute is ready.\n",
-                            style("✓").green().bold()
+                            style("[OK]").green().bold()
                         );
                     } else if recheck.needs_reboot {
                         println!(
                             "\n  {} {}",
-                            style("⚠").yellow().bold(),
-                            style("Group membership updated — reboot required to activate GPU access.").yellow()
+                            style("[WARN]").yellow().bold(),
+                            style("Group membership updated - reboot required to activate GPU access.").yellow()
                         );
                         println!();
 
@@ -146,7 +146,7 @@ pub fn run(install: bool) {
                             .interact()
                             .unwrap_or(false)
                         {
-                            println!("\n  {} Rebooting...\n", style("→").cyan().bold());
+                            println!("\n  {} Rebooting...\n", style("[->]").cyan().bold());
                             let _ = std::process::Command::new("sudo")
                                 .arg("reboot")
                                 .status();
@@ -161,10 +161,10 @@ pub fn run(install: bool) {
                         if !still_missing.is_empty() {
                             println!(
                                 "\n  {} Some dependencies still need attention:",
-                                style("⚠").yellow().bold()
+                                style("[WARN]").yellow().bold()
                             );
                             for dep in &still_missing {
-                                println!("    • {}", dep.name);
+                                println!("     {}", dep.name);
                             }
                             println!();
                         }
@@ -173,7 +173,7 @@ pub fn run(install: bool) {
                 Err(e) => {
                     println!(
                         "  {} Installation failed:\n    {}",
-                        style("✗").red().bold(),
+                        style("[ERR]").red().bold(),
                         style(e).red()
                     );
                     println!("\n  Try running manually:\n    {}", style(&cmd).bold());

@@ -79,7 +79,7 @@ fn draw_search_panel(f: &mut Frame, app: &App, area: Rect) {
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(" 🔍 Search HuggingFace "),
+                .title(" Search HuggingFace "),
         );
 
     f.render_widget(search, chunks[0]);

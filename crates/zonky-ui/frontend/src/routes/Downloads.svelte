@@ -16,7 +16,7 @@
   }
 
   function formatSpeed(bytesPerSec) {
-    if (!bytesPerSec || bytesPerSec === 0) return "—";
+    if (!bytesPerSec || bytesPerSec === 0) return "-";
     const mb = bytesPerSec / (1024 * 1024);
     return mb.toFixed(1) + " MB/s";
   }

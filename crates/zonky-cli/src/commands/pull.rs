@@ -13,7 +13,7 @@ pub async fn run(config: &ZonkyConfig, model_id: &str, file: Option<&str>) -> an
     } else {
         println!(
             "{} Fetching available files for {}...",
-            style("→").cyan(),
+            style("[->]").cyan(),
             style(model_id).bold()
         );
 
@@ -22,13 +22,13 @@ pub async fn run(config: &ZonkyConfig, model_id: &str, file: Option<&str>) -> an
         if files.is_empty() {
             println!(
                 "{} No GGUF files found in {}",
-                style("✗").red(),
+                style("[ERR]").red(),
                 model_id
             );
             return Ok(());
         }
 
-        println!("\n{} Available GGUF files:\n", style("📦").bold());
+        println!("\n{} Available GGUF files:\n", style("[FILES]").bold());
         for (i, f) in files.iter().enumerate() {
             let size_str = f
                 .size
@@ -56,7 +56,7 @@ pub async fn run(config: &ZonkyConfig, model_id: &str, file: Option<&str>) -> an
 
     println!(
         "\n{} Downloading {}/{}\n",
-        style("⬇").cyan(),
+        style("[DL]").cyan(),
         style(model_id).bold(),
         style(&filename).bold()
     );
@@ -66,7 +66,7 @@ pub async fn run(config: &ZonkyConfig, model_id: &str, file: Option<&str>) -> an
         ProgressStyle::default_bar()
             .template("{spinner:.green} [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({bytes_per_sec}, {eta})")
             .unwrap()
-            .progress_chars("█▉▊▋▌▍▎▏ "),
+            .progress_chars("=>-"),
     );
 
     let pb_clone = pb.clone();
@@ -84,16 +84,19 @@ pub async fn run(config: &ZonkyConfig, model_id: &str, file: Option<&str>) -> an
     // Also try to download the tokenizer
     println!(
         "\n{} Downloading tokenizer...",
-        style("⬇").cyan()
+        style("[DL]").cyan()
     );
     match hub.download_tokenizer(model_id).await {
-        Ok(_) => println!("{} Tokenizer downloaded", style("✓").green()),
-        Err(_) => println!("{} Tokenizer not available (will use fallback)", style("⚠").yellow()),
+        Ok(_) => println!("{} Tokenizer downloaded", style("[OK]").green()),
+        Err(_) => println!(
+            "{} Tokenizer not available (will use fallback)",
+            style("[WARN]").yellow()
+        ),
     }
 
     println!(
         "\n{} Model saved to {}\n",
-        style("✓").green(),
+        style("[OK]").green(),
         style(path.display()).bold()
     );
 

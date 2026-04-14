@@ -134,7 +134,7 @@
   }
 
   function formatSize(bytes) {
-    if (!bytes) return "—";
+    if (!bytes) return "-";
     const gb = bytes / (1024 * 1024 * 1024);
     if (gb >= 1) return gb.toFixed(1) + " GB";
     const mb = bytes / (1024 * 1024);
@@ -271,7 +271,7 @@
               {result.model_id.split("/").pop()}
             </h3>
             <p class="text-sm text-on-surface-variant mb-4">
-              {result.author || "Unknown"} · {formatDownloads(result.downloads)} Downloads
+              {result.author || "Unknown"} - {formatDownloads(result.downloads)} Downloads
             </p>
 
             <!-- Stats Row -->

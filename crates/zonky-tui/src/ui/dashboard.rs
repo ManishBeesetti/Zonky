@@ -77,7 +77,7 @@ fn draw_loaded_models(f: &mut Frame, app: &App, area: Rect) {
             .iter()
             .map(|m| {
                 Line::from(vec![
-                    Span::styled("● ", Style::default().fg(Color::Green)),
+                    Span::styled("* ", Style::default().fg(Color::Green)),
                     Span::raw(m.as_str()),
                 ])
             })
