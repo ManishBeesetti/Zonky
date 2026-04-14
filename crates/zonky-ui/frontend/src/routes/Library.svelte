@@ -49,20 +49,20 @@
   }
 
   function formatSize(bytes) {
-    if (!bytes || bytes === 0) return "—";
+    if (!bytes || bytes === 0) return "-";
     const units = ["B", "KB", "MB", "GB"];
     const i = Math.floor(Math.log(bytes) / Math.log(1024));
     return (bytes / Math.pow(1024, i)).toFixed(1) + " " + units[i];
   }
 
   function estimateVram(bytes) {
-    if (!bytes) return "—";
+    if (!bytes) return "-";
     const gb = bytes / (1024 * 1024 * 1024);
     return `~${(gb * 1.1).toFixed(1)}GB VRAM`;
   }
 
   function extractFilename(path) {
-    if (!path) return "";
+    if (!path) return "-";
     return path.split("/").pop();
   }
 </script>

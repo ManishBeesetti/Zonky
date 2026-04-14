@@ -9,7 +9,7 @@ pub async fn run(config: &ZonkyConfig, model_id: &str) -> anyhow::Result<()> {
     // Check if it's a local model first
     let local_models = hub.list_local_models()?;
     if let Some(local) = local_models.iter().find(|m| m.id == model_id || m.repo_id == model_id) {
-        println!("\n{} Local model info:\n", style("📋").bold());
+        println!("\n{} Local model info:\n", style("[INFO]").bold());
         println!("  {} {}", style("ID:").bold(), local.id);
         println!("  {} {}", style("Repo:").bold(), local.repo_id);
         println!("  {} {}", style("File:").bold(), local.filename);
@@ -29,7 +29,7 @@ pub async fn run(config: &ZonkyConfig, model_id: &str) -> anyhow::Result<()> {
     // Try fetching from HuggingFace
     println!(
         "{} Fetching info for {}...\n",
-        style("→").cyan(),
+        style("[->]").cyan(),
         style(model_id).bold()
     );
 
@@ -59,7 +59,7 @@ pub async fn run(config: &ZonkyConfig, model_id: &str) -> anyhow::Result<()> {
         .collect();
 
     if !gguf_files.is_empty() {
-        println!("\n  {} GGUF files:", style("📦").bold());
+        println!("\n  {} GGUF files:", style("[FILES]").bold());
         for f in &gguf_files {
             let size_str = f
                 .size

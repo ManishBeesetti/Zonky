@@ -140,7 +140,7 @@
   <div class="absolute bottom-0 left-0 right-0 h-[1px] bg-surface-container-low"></div>
 </header>
 
-<!-- Main Content — all pages stay mounted, hidden via CSS to preserve state -->
+<!-- Main Content - all pages stay mounted, hidden via CSS to preserve state -->
 <main class="ml-20 mt-14 mb-8 h-[calc(100vh-56px-32px)] overflow-y-auto no-scrollbar bg-background">
   <div class="h-full" hidden={currentPage !== "dashboard"}><Dashboard /></div>
   <div class="h-full" hidden={currentPage !== "library"}><Library /></div>

@@ -53,7 +53,7 @@ fn draw_tabs(f: &mut Frame, app: &App, area: Rect) {
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(" ⚡ Zonky "),
+                .title(" Zonky "),
         )
         .select(app.active_tab.index())
         .highlight_style(
@@ -61,7 +61,7 @@ fn draw_tabs(f: &mut Frame, app: &App, area: Rect) {
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
         )
-        .divider("│");
+        .divider("|");
 
     f.render_widget(tabs, area);
 }
