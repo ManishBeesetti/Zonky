@@ -38,7 +38,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
 pub async fn serve(manager: ModelManager, config: zonky_core::ZonkyConfig) -> anyhow::Result<()> {
     let addr = format!("{}:{}", config.server.host, config.server.port);
 
-    let state = Arc::new(AppState::new(manager, config));
+    let state = Arc::new(AppState::new(Arc::new(manager), config));
     let app = build_router(state);
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
