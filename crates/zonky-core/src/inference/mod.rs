@@ -1,4 +1,5 @@
 pub mod candle_backend;
+#[cfg(feature = "llamacpp")]
 pub mod llamacpp_backend;
 
 use std::path::Path;

@@ -6,9 +6,10 @@ license.workspace = true
 description = "Core inference engine, model management, and HuggingFace Hub integration for Zonky"
 
 [features]
-default = []
+default = ["llamacpp"]
 cuda = ["candle-core/cuda", "candle-nn/cuda", "candle-transformers/cuda"]
 metal = ["candle-core/metal", "candle-nn/metal", "candle-transformers/metal"]
+llamacpp = ["dep:llama-cpp-2"]
 
 [dependencies]
 # Async
@@ -35,7 +36,7 @@ candle-nn = { workspace = true }
 candle-transformers = { workspace = true }
 
 # Inference - llama.cpp
-llama-cpp-2 = { workspace = true }
+llama-cpp-2 = { workspace = true, optional = true }
 
 # HuggingFace
 hf-hub = { workspace = true }
