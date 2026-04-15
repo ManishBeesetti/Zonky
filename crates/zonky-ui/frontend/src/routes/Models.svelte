@@ -5,11 +5,18 @@
   let searchResults = $state([]);
   let searchQuery = $state("");
   let searching = $state(false);
+  let searchAttempted = $state(false);
+  let searchError = $state("");
+  let searchLimit = $state(20);
   let pullStatus = $state("");
+  let pullStatusTone = $state("success");
   let localModels = $state([]);
   let filePicker = $state(null); // { repoId, files, loading }
   let filterModelsOnly = $state(true);
   let allDownloads = $derived(getDownloads());
+  let canLoadMore = $derived(
+    searchResults.length > 0 && searchResults.length >= searchLimit && !searching && !searchError
+  );
 
   const NON_MODEL_PATTERNS = ["mmproj", "vision-encoder", "clip-", "image-encoder", "visual"];
   function isNonModel(filename) {
@@ -36,6 +43,12 @@
     gemma: "primary",
     default: "primary",
   };
+  const modelToneClasses = {
+    primary: "bg-primary/10 text-primary",
+    tertiary: "bg-tertiary/10 text-tertiary",
+    "on-surface-variant": "bg-surface-container-high text-on-surface-variant",
+    default: "bg-primary/10 text-primary",
+  };
 
   onMount(async () => {
     await loadLocalModels();
@@ -48,18 +61,48 @@
     } catch (_) {}
   }
 
-  async function searchModels() {
-    if (!searchQuery.trim()) return;
+  function toErrorMessage(error, fallback) {
+    if (!error) return fallback;
+    if (typeof error === "string") return error;
+    if (error instanceof Error) return error.message;
+    return fallback;
+  }
+
+  async function searchModels({ append = false } = {}) {
+    const query = searchQuery.trim();
+    if (!query) return;
+    const nextLimit = append ? searchLimit + 20 : 20;
     searching = true;
-    filePicker = null;
+    if (!append) {
+      filePicker = null;
+      searchAttempted = true;
+      searchError = "";
+    }
     try {
       const { invoke } = await import("@tauri-apps/api/core");
-      searchResults = await invoke("search_models", {
-        query: searchQuery,
-        limit: 20,
+      const results = await invoke("search_models", {
+        query,
+        limit: nextLimit,
       });
+      if (append) {
+        const seen = new Set(searchResults.map((r) => r.model_id));
+        const merged = [...searchResults];
+        for (const result of results) {
+          if (!seen.has(result.model_id)) {
+            merged.push(result);
+            seen.add(result.model_id);
+          }
+        }
+        searchResults = merged;
+      } else {
+        searchResults = results;
+      }
+      searchLimit = nextLimit;
     } catch (e) {
-      console.error("Search failed:", e);
+      searchError = toErrorMessage(e, "Model search failed");
+      if (!append) {
+        searchResults = [];
+      }
     }
     searching = false;
   }
@@ -75,7 +118,8 @@
       const files = await invoke("list_gguf_files", { repoId });
       filePicker = { repoId, files, loading: false };
     } catch (e) {
-      pullStatus = `Error listing files: ${e}`;
+      pullStatus = `Error listing files: ${toErrorMessage(e, "unknown error")}`;
+      pullStatusTone = "error";
       filePicker = null;
     }
   }
@@ -84,15 +128,16 @@
     filePicker = null;
     addDownload(repoId, filename, size);
     pullStatus = `Queued ${filename} for download.`;
+    pullStatusTone = "success";
   }
 
   function handleSearchKey(e) {
-    if (e.key === "Enter") searchModels();
+    if (e.key === "Enter") searchModels({ append: false });
   }
 
   function tagSearch(tag) {
     searchQuery = tag.toLowerCase();
-    searchModels();
+    searchModels({ append: false });
   }
 
   function getIcon(modelId) {
@@ -109,6 +154,15 @@
       if (key !== "default" && lower.includes(key)) return color;
     }
     return modelColors.default;
+  }
+
+  function getToneClass(modelId) {
+    const tone = getColor(modelId);
+    return modelToneClasses[tone] || modelToneClasses.default;
+  }
+
+  function loadMoreModels() {
+    searchModels({ append: true });
   }
 
   function guessArch(modelId) {
@@ -208,12 +262,14 @@
   {#if pullStatus}
     <div class="mx-8 mt-4">
       <div
-        class="max-w-6xl mx-auto glass-panel p-4 rounded-xl flex items-center gap-4 border-l-2 border-secondary"
+        class="max-w-6xl mx-auto glass-panel p-4 rounded-xl flex items-center gap-4 border-l-2 {pullStatusTone === 'error' ? 'border-error' : 'border-secondary'}"
       >
         <div
-          class="w-8 h-8 rounded flex items-center justify-center bg-secondary/20 text-secondary"
+          class="w-8 h-8 rounded flex items-center justify-center {pullStatusTone === 'error' ? 'bg-error/20 text-error' : 'bg-secondary/20 text-secondary'}"
         >
-          <span class="material-symbols-outlined text-lg">check_circle</span>
+          <span class="material-symbols-outlined text-lg">{pullStatusTone === "error"
+              ? "error"
+              : "check_circle"}</span>
         </div>
         <p class="text-sm font-mono text-on-surface-variant">{pullStatus}</p>
       </div>
@@ -222,7 +278,33 @@
 
   <!-- Results Grid -->
   <section class="px-8 py-8 max-w-6xl mx-auto">
-    {#if searchResults.length === 0 && !searching}
+    {#if searching && searchResults.length === 0}
+      <div class="flex flex-col items-center justify-center py-20 text-center">
+        <div class="w-16 h-16 rounded-xl bg-surface-container-high flex items-center justify-center mb-6">
+          <span class="material-symbols-outlined text-3xl text-primary animate-spin"
+            >progress_activity</span
+          >
+        </div>
+        <h3 class="font-headline text-xl text-on-surface mb-2">Searching Model Hub...</h3>
+        <p class="text-on-surface-variant text-sm max-w-md">
+          Fetching matching models from HuggingFace.
+        </p>
+      </div>
+    {:else if searchError}
+      <div class="flex flex-col items-center justify-center py-20 text-center">
+        <div class="w-16 h-16 rounded-xl bg-error/10 text-error flex items-center justify-center mb-6">
+          <span class="material-symbols-outlined text-3xl">error</span>
+        </div>
+        <h3 class="font-headline text-xl text-on-surface mb-2">Search failed</h3>
+        <p class="text-on-surface-variant text-sm max-w-md mb-4">{searchError}</p>
+        <button
+          class="bg-primary text-on-primary px-4 py-2 rounded-lg text-sm font-bold hover:shadow-[0_0_15px_rgba(76,214,255,0.4)] transition-all"
+          onclick={() => searchModels({ append: false })}
+        >
+          Retry search
+        </button>
+      </div>
+    {:else if searchResults.length === 0}
       <div
         class="flex flex-col items-center justify-center py-20 text-center"
       >
@@ -231,11 +313,19 @@
         >
           <span class="material-symbols-outlined text-3xl text-on-surface-variant">hub</span>
         </div>
-        <h3 class="font-headline text-xl text-on-surface mb-2">Search the Hub</h3>
-        <p class="text-on-surface-variant text-sm max-w-md">
-          Search for GGUF-quantized models optimized for local inference. Try "llama GGUF",
-          "mistral", or click a trending tag.
-        </p>
+        <h3 class="font-headline text-xl text-on-surface mb-2"
+          >{searchAttempted ? "No models found" : "Search the Hub"}</h3
+        >
+        {#if searchAttempted}
+          <p class="text-on-surface-variant text-sm max-w-md">
+            No results matched "{searchQuery}". Try broader keywords or a trending tag.
+          </p>
+        {:else}
+          <p class="text-on-surface-variant text-sm max-w-md">
+            Search for GGUF-quantized models optimized for local inference. Try "llama GGUF",
+            "mistral", or click a trending tag.
+          </p>
+        {/if}
       </div>
     {:else}
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -254,7 +344,7 @@
             <!-- Card Header -->
             <div class="flex justify-between items-start mb-4">
               <div
-                class="w-10 h-10 rounded-lg bg-{getColor(result.model_id)}/10 flex items-center justify-center text-{getColor(result.model_id)}"
+                class="w-10 h-10 rounded-lg flex items-center justify-center {getToneClass(result.model_id)}"
               >
                 <span class="material-symbols-outlined">{getIcon(result.model_id)}</span>
               </div>
@@ -382,6 +472,16 @@
           </div>
         {/each}
       </div>
+      {#if canLoadMore}
+        <div class="mt-8 flex justify-center">
+          <button
+            class="bg-surface-container-high text-on-surface px-4 py-2 rounded-lg text-sm font-bold hover:bg-primary/15 hover:text-primary transition-all"
+            onclick={loadMoreModels}
+          >
+            Load More Results
+          </button>
+        </div>
+      {/if}
     {/if}
   </section>
 </div>

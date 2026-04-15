@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use reqwest::Client;
+use serde::Serialize;
 use tokio::io::AsyncWriteExt;
 use tracing::{debug, info};
 
@@ -93,15 +94,30 @@ impl HubClient {
         query: &str,
         limit: usize,
     ) -> Result<Vec<HubModelInfo>> {
-        let url = format!(
-            "{HF_API_BASE}/models?search={query}&limit={limit}&sort=downloads&direction=-1&filter=gguf"
-        );
+        #[derive(Serialize)]
+        struct SearchParams<'a> {
+            search: &'a str,
+            limit: usize,
+            sort: &'a str,
+            direction: i8,
+            filter: &'a str,
+        }
 
-        debug!(url = %url, "Searching HuggingFace Hub");
+        let url = format!("{HF_API_BASE}/models");
+        let params = SearchParams {
+            search: query,
+            limit,
+            sort: "downloads",
+            direction: -1,
+            filter: "gguf",
+        };
+
+        debug!(query = %query, limit, "Searching HuggingFace Hub");
 
         let response = self
             .http
             .get(&url)
+            .query(&params)
             .send()
             .await
             .map_err(|e| ZonkyError::HubError(format!("Search request failed: {e}")))?;
