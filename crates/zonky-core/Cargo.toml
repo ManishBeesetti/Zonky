@@ -10,6 +10,8 @@ default = ["llamacpp"]
 cuda = ["candle-core/cuda", "candle-nn/cuda", "candle-transformers/cuda"]
 metal = ["candle-core/metal", "candle-nn/metal", "candle-transformers/metal"]
 llamacpp = ["dep:llama-cpp-2"]
+llamacpp-vulkan = ["llamacpp", "llama-cpp-2/vulkan"]
+llamacpp-cuda = ["llamacpp", "llama-cpp-2/cuda"]
 
 [dependencies]
 # Async
