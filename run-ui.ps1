@@ -48,6 +48,33 @@ function Test-ViteAlive {
     }
 }
 
+function Get-VulkanSdkRoot {
+    if ($env:VULKAN_SDK -and (Test-Path (Join-Path $env:VULKAN_SDK "Lib\\vulkan-1.lib"))) {
+        return $env:VULKAN_SDK
+    }
+
+    $candidates = @()
+    if (Test-Path "C:\\VulkanSDK") {
+        $candidates += Get-ChildItem "C:\\VulkanSDK" -Directory -ErrorAction SilentlyContinue |
+            Sort-Object Name -Descending |
+            Select-Object -ExpandProperty FullName
+    }
+
+    # Fallback path when Vulkan SDK import libs are available from RTSS tooling.
+    $rtssVk = "C:\\Program Files (x86)\\RivaTuner Statistics Server\\SDK\\Tools\\DesktopOverlayHost\\vk"
+    if (Test-Path (Join-Path $rtssVk "Lib\\vulkan-1.lib")) {
+        $candidates += $rtssVk
+    }
+
+    foreach ($candidate in $candidates) {
+        if (Test-Path (Join-Path $candidate "Lib\\vulkan-1.lib")) {
+            return $candidate
+        }
+    }
+
+    return $null
+}
+
 $repoRoot = $PSScriptRoot
 if ([string]::IsNullOrWhiteSpace($repoRoot)) {
     $repoRoot = (Get-Location).Path
@@ -77,6 +104,30 @@ $cargoCmd = Get-Command "cargo" -ErrorAction SilentlyContinue
 $rustupCmd = Get-Command "rustup" -ErrorAction SilentlyContinue
 if (-not $cargoCmd -and -not $rustupCmd) {
     Fail "Rust toolchain not detected. Install Rust from https://rustup.rs/."
+}
+
+$videoControllers = Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue
+$hasVulkanCandidateGpu = $false
+if ($videoControllers) {
+    foreach ($vc in $videoControllers) {
+        if ($vc.Name -match "AMD|Radeon|Intel|Arc") {
+            $hasVulkanCandidateGpu = $true
+            break
+        }
+    }
+}
+
+$extraCargoArgs = @()
+if ($hasVulkanCandidateGpu) {
+    Require-Command -Name "vulkaninfo" -InstallHint "Install Vulkan Runtime (KhronosGroup.VulkanRT)." | Out-Null
+    $vulkanSdkRoot = Get-VulkanSdkRoot
+    if (-not $vulkanSdkRoot) {
+        Fail "Vulkan SDK not found (missing VULKAN_SDK with Lib\\vulkan-1.lib). Install KhronosGroup.VulkanSDK."
+    }
+
+    $env:VULKAN_SDK = $vulkanSdkRoot
+    $extraCargoArgs = @("--features", "zonky-core/llamacpp-vulkan")
+    Write-Host "[INFO] Vulkan backend enabled for llama.cpp (VULKAN_SDK=$vulkanSdkRoot)." -ForegroundColor Cyan
 }
 
 $uiProcess = Get-Process -Name "zonky-ui" -ErrorAction SilentlyContinue
@@ -129,8 +180,9 @@ if (-not (Test-ViteAlive)) {
 }
 
 Write-Host "[INFO] Launching zonky-ui..." -ForegroundColor Cyan
+$cargoArgs = @("run", "-p", "zonky-ui") + $extraCargoArgs
 if ($cargoCmd) {
-    & cargo run -p zonky-ui
+    & cargo @cargoArgs
 } else {
-    & rustup run stable cargo run -p zonky-ui
+    & rustup run stable cargo @cargoArgs
 }
