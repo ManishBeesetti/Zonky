@@ -71,7 +71,11 @@ async fn chat_completions(
                         "code": "generation_failed"
                     }
                 });
-                (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(error_response)).into_response()
+                (
+                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(error_response),
+                )
+                    .into_response()
             }
         }
     } else {
@@ -87,7 +91,11 @@ async fn chat_completions(
                         "code": "generation_failed"
                     }
                 });
-                (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(error_response)).into_response()
+                (
+                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(error_response),
+                )
+                    .into_response()
             }
         }
     }
