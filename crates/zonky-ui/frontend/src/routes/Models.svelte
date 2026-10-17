@@ -108,19 +108,20 @@
   }
 
   async function showFilePicker(repoId) {
-    if (filePicker?.repoId === repoId) {
+    if (filePicker?.repoId === repoId && !filePicker?.error) {
       filePicker = null;
       return;
     }
-    filePicker = { repoId, files: [], loading: true };
+    filePicker = { repoId, files: [], loading: true, error: "" };
     try {
       const { invoke } = await import("@tauri-apps/api/core");
       const files = await invoke("list_gguf_files", { repoId });
-      filePicker = { repoId, files, loading: false };
+      filePicker = { repoId, files, loading: false, error: "" };
     } catch (e) {
-      pullStatus = `Error listing files: ${toErrorMessage(e, "unknown error")}`;
+      const msg = toErrorMessage(e, "unknown error");
+      pullStatus = `Error listing files: ${msg}`;
       pullStatusTone = "error";
-      filePicker = null;
+      filePicker = { repoId, files: [], loading: false, error: msg };
     }
   }
 
@@ -427,6 +428,16 @@
                     <span class="material-symbols-outlined text-sm animate-spin">progress_activity</span>
                     Fetching GGUF files...
                   </div>
+                {:else if filePicker.error}
+                  <div class="py-3 px-2 text-center space-y-2">
+                    <p class="text-xs text-error font-mono">{filePicker.error}</p>
+                    <button
+                      class="px-3 py-1 rounded-lg bg-primary/15 text-primary text-xs font-bold hover:bg-primary/25 transition-colors"
+                      onclick={() => showFilePicker(result.model_id)}
+                    >
+                      Retry
+                    </button>
+                  </div>
                 {:else if filePicker.files.length === 0}
                   <div class="py-3 text-center text-on-surface-variant text-sm">
                     No GGUF files found in this repo.
@@ -455,9 +466,24 @@
                       <button
                         class="w-full flex items-center justify-between px-3 py-2 rounded-lg text-left hover:bg-primary/10 transition-colors group/file"
                         onclick={() => pullModel(result.model_id, file.filename, file.size)}
+                        title={file.reason || ""}
                       >
                         <div class="min-w-0 flex-1 mr-3">
-                          <div class="text-sm font-mono text-on-surface truncate">{file.filename}</div>
+                          <div class="flex items-center gap-2">
+                            <span class="text-sm font-mono text-on-surface truncate">{file.filename}</span>
+                            {#if file.recommended}
+                              <span class="px-1.5 py-0.5 rounded bg-secondary/20 text-secondary text-[9px] font-bold uppercase tracking-wider flex-shrink-0">
+                                Recommended
+                              </span>
+                            {:else if file.fit_level === "too_large"}
+                              <span class="px-1.5 py-0.5 rounded bg-error/20 text-error text-[9px] font-bold uppercase tracking-wider flex-shrink-0">
+                                Too Large
+                              </span>
+                            {/if}
+                          </div>
+                          {#if file.reason}
+                            <div class="text-[10px] text-on-surface-variant/60 truncate">{file.reason}</div>
+                          {/if}
                         </div>
                         <div class="flex items-center gap-3 flex-shrink-0">
                           <span class="text-xs font-mono text-secondary">{formatSize(file.size)}</span>
