@@ -8,6 +8,13 @@
   let serverToggling = $state(false);
   let logs = $state([]);
   let copied = $state(false);
+  let telemetry = $state({
+    total_requests: 0,
+    total_tokens_generated: 0,
+    avg_tokens_per_second: 0,
+    avg_latency_ms: 0,
+    recent_records: [],
+  });
 
   const gaugeRadius = 70;
   const gaugeCircumference = 2 * Math.PI * gaugeRadius;
@@ -15,14 +22,41 @@
   onMount(async () => {
     try {
       const { invoke } = await import("@tauri-apps/api/core");
-      const [setup, status] = await Promise.all([
+      const [setup, status, telem] = await Promise.all([
         invoke("get_setup_status"),
         invoke("get_server_status"),
+        invoke("get_telemetry").catch(() => null),
       ]);
       setupStatus = setup;
       serverStatus = status;
+      if (telem) telemetry = telem;
     } catch (_) {}
   });
+
+  async function refreshTelemetry() {
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const telem = await invoke("get_telemetry");
+      if (telem) telemetry = telem;
+    } catch (_) {}
+  }
+
+  async function clearTelemetryHistory() {
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("clear_telemetry");
+      telemetry = {
+        total_requests: 0,
+        total_tokens_generated: 0,
+        avg_tokens_per_second: 0,
+        avg_latency_ms: 0,
+        recent_records: [],
+      };
+      addLog("INFO", "Telemetry history cleared");
+    } catch (e) {
+      addLog("ERROR", `Failed to clear telemetry: ${e}`);
+    }
+  }
 
   async function toggleServer() {
     serverToggling = true;
@@ -192,19 +226,32 @@
 
     <!-- Stats (4 cols) -->
     <div class="col-span-12 lg:col-span-4 bg-surface-container-lowest rounded-xl p-6 flex flex-col justify-between">
-      <div>
-        <span class="text-on-surface-variant font-label text-[10px] uppercase tracking-[0.2em]">Inference Stats</span>
-        <h2 class="font-headline text-xl text-on-surface mt-1">Performance</h2>
+      <div class="flex justify-between items-start">
+        <div>
+          <span class="text-on-surface-variant font-label text-[10px] uppercase tracking-[0.2em]">Inference Stats</span>
+          <h2 class="font-headline text-xl text-on-surface mt-1">Performance</h2>
+        </div>
+        <button
+          class="p-1.5 rounded-lg hover:bg-surface-container-highest transition-colors text-on-surface-variant"
+          onclick={refreshTelemetry}
+          title="Sync telemetry"
+        >
+          <span class="material-symbols-outlined text-sm">sync</span>
+        </button>
       </div>
       <div class="space-y-4 py-4">
         <div class="bg-surface-container-low rounded-lg p-4 border-l-2 border-primary">
           <p class="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold">Throughput</p>
-          <p class="font-headline text-3xl text-primary font-bold">-</p>
+          <p class="font-headline text-3xl text-primary font-bold">
+            {telemetry.total_requests > 0 ? telemetry.avg_tokens_per_second.toFixed(1) : "-"}
+          </p>
           <p class="text-[10px] uppercase tracking-widest text-on-surface-variant">tok/s</p>
         </div>
         <div class="bg-surface-container-low rounded-lg p-4 border-l-2 border-tertiary">
           <p class="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold">Latency</p>
-          <p class="font-headline text-3xl text-tertiary font-bold">-</p>
+          <p class="font-headline text-3xl text-tertiary font-bold">
+            {telemetry.total_requests > 0 ? Math.round(telemetry.avg_latency_ms) : "-"}
+          </p>
           <p class="text-[10px] uppercase tracking-widest text-on-surface-variant">ms (first token)</p>
         </div>
         <div class="bg-surface-container-low rounded-lg p-4 border-l-2 border-secondary">
@@ -213,6 +260,49 @@
         </div>
       </div>
     </div>
+
+    {#if telemetry.recent_records?.length > 0}
+      <div class="col-span-12 bg-surface-container-lowest rounded-xl overflow-hidden">
+        <div class="px-6 py-4 flex justify-between items-center" style="background: rgba(28, 27, 28, 0.3);">
+          <div class="flex items-center gap-3">
+            <h3 class="font-headline text-md text-on-surface">Recent Inference Telemetry</h3>
+            <span class="text-[10px] font-mono text-secondary px-2 py-0.5 bg-secondary/10 rounded">
+              {telemetry.total_requests} runs · {telemetry.total_tokens_generated} tokens
+            </span>
+          </div>
+          <button
+            class="px-3 py-1 rounded-lg bg-surface-container-high hover:bg-error/10 hover:text-error transition-colors text-[10px] font-mono uppercase tracking-widest text-on-surface-variant"
+            onclick={clearTelemetryHistory}
+          >
+            Clear Telemetry
+          </button>
+        </div>
+        <div class="p-4 overflow-x-auto">
+          <table class="w-full text-left border-collapse text-xs font-mono">
+            <thead class="text-[10px] uppercase tracking-widest text-on-surface-variant border-b border-outline-variant/10">
+              <tr>
+                <th class="px-4 py-2">Target</th>
+                <th class="px-4 py-2">Engine</th>
+                <th class="px-4 py-2">Tokens</th>
+                <th class="px-4 py-2">Speed</th>
+                <th class="px-4 py-2">Duration</th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each telemetry.recent_records.slice(0, 5) as rec}
+                <tr class="border-b border-outline-variant/5 hover:bg-surface-container-low/50">
+                  <td class="px-4 py-2 text-primary">{rec.model_id}</td>
+                  <td class="px-4 py-2 text-secondary">{rec.backend_name}</td>
+                  <td class="px-4 py-2 text-on-surface-variant">{rec.prompt_tokens} → {rec.generated_tokens}</td>
+                  <td class="px-4 py-2 text-primary font-bold">{rec.tokens_per_second.toFixed(1)} tok/s</td>
+                  <td class="px-4 py-2 text-tertiary">{rec.total_latency_ms} ms</td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    {/if}
 
     <!-- Endpoints -->
     {#if serverStatus.running}
