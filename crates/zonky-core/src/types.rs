@@ -1,7 +1,10 @@
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
+
 use serde::{Deserialize, Serialize};
 
 /// A chat message with role and content
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Message {
     pub role: Role,
     pub content: String,
@@ -40,6 +43,28 @@ pub struct GenerationRequest {
     pub presence_penalty: f64,
     #[serde(default)]
     pub seed: Option<u64>,
+    #[serde(skip)]
+    pub cancel_token: Option<Arc<AtomicBool>>,
+}
+
+impl Default for GenerationRequest {
+    fn default() -> Self {
+        Self {
+            model: String::new(),
+            messages: Vec::new(),
+            temperature: default_temperature(),
+            top_p: default_top_p(),
+            top_k: None,
+            max_tokens: default_max_tokens(),
+            stream: false,
+            repetition_penalty: default_repetition_penalty(),
+            stop: None,
+            frequency_penalty: 0.0,
+            presence_penalty: 0.0,
+            seed: None,
+            cancel_token: None,
+        }
+    }
 }
 
 fn default_temperature() -> f64 {
@@ -70,6 +95,8 @@ pub struct CompletionRequest {
     pub stream: bool,
     #[serde(default)]
     pub stop: Option<Vec<String>>,
+    #[serde(default = "default_repetition_penalty")]
+    pub repetition_penalty: f64,
 }
 
 /// Full generation response (OpenAI-compatible)
@@ -81,6 +108,8 @@ pub struct GenerationResponse {
     pub model: String,
     pub choices: Vec<Choice>,
     pub usage: Usage,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub telemetry: Option<TelemetryRecord>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -105,6 +134,19 @@ pub struct StreamChunk {
     pub created: i64,
     pub model: String,
     pub choices: Vec<StreamChoice>,
+}
+
+impl StreamChunk {
+    pub fn delta_text(&self) -> &str {
+        self.choices
+            .first()
+            .and_then(|c| c.delta.content.as_deref())
+            .unwrap_or("")
+    }
+
+    pub fn finish_reason(&self) -> Option<String> {
+        self.choices.first().and_then(|c| c.finish_reason.clone())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -281,4 +323,45 @@ pub struct GpuInfo {
     pub device_type: String,
     pub vram_total: Option<u64>,
     pub vram_free: Option<u64>,
+}
+
+/// Per-generation telemetry record
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TelemetryRecord {
+    pub id: String,
+    pub timestamp: String,
+    pub model_id: String,
+    pub backend: String,
+    pub device: String,
+    pub prompt_tokens: u32,
+    pub completion_tokens: u32,
+    pub duration_ms: u64,
+    pub tokens_per_second: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub time_to_first_token_ms: Option<u64>,
+}
+
+/// Aggregated telemetry and recent history
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct TelemetrySummary {
+    pub total_requests: usize,
+    pub total_prompt_tokens: u64,
+    pub total_completion_tokens: u64,
+    pub avg_tokens_per_second: f64,
+    pub avg_latency_ms: f64,
+    pub recent: Vec<TelemetryRecord>,
+}
+
+/// Hardware-aware compatibility & recommendation score for a GGUF file
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FileRecommendation {
+    pub filename: String,
+    pub size: Option<u64>,
+    pub quantization: Option<String>,
+    pub estimated_vram_bytes: u64,
+    /// "optimal", "good", or "too_large"
+    pub fit_level: String,
+    pub recommended: bool,
+    pub recommended_backend: String,
+    pub reason: String,
 }

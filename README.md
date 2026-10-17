@@ -103,13 +103,36 @@ Frontend checks:
 cd crates/zonky-ui/frontend
 npm install
 npm run build
-npx playwright test --project=chromium
+npm test
+```
+
+## Cargo Feature Matrix
+
+`zonky-core` supports configurable inference backends via Cargo features:
+
+| Feature | Default | Description | Supported Platforms |
+| --- | --- | --- | --- |
+| `llamacpp` | Enabled (`default`) | `llama.cpp` GGUF inference backend (`llama-cpp-2`) with CPU, ROCm, Metal, and Vulkan acceleration | Linux, macOS, Windows (requires CMake + C++ toolchain) |
+| `--no-default-features` | Optional | Pure-Rust `candle` GGUF inference backend (no CMake/C++ compiler required) | Linux, macOS, Windows |
+| `cuda` | Optional | Enables NVIDIA CUDA acceleration in `candle-core` (requires NVIDIA CUDA Toolkit `nvcc`) | Linux, Windows (NVIDIA GPUs) |
+
+Examples:
+
+```bash
+# Default build (Candle + llama.cpp backends)
+cargo build --workspace
+
+# Pure-Rust build without CMake / llama.cpp
+cargo build --workspace --no-default-features
+
+# Enable CUDA for Candle backend (requires CUDA toolkit)
+cargo build -p zonky-core --features cuda
 ```
 
 ## Troubleshooting
 
 - `is cmake not installed?`:
-  Ensure `cmake --version` works in the same shell.
+  Ensure `cmake --version` works in the same shell, or build with `--no-default-features` to use the pure-Rust Candle backend.
 - `Access is denied` for `zonky-ui.exe`:
   Close the app or run:
 
