@@ -8,7 +8,7 @@ use tokio::sync::Mutex;
 use zonky_core::gpu;
 use zonky_core::model::ModelManager;
 use zonky_core::types::*;
-use zonky_core::{HubClient, ZonkyConfig};
+use zonky_core::ZonkyConfig;
 
 /// Tracks active downloads and their cancellation tokens
 pub type DownloadRegistry = Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>;
@@ -119,68 +119,108 @@ fn build_embedded_server_state(
     Arc::new(zonky_server::state::AppState::new(manager, config))
 }
 
-fn get_hub_client() -> Result<HubClient, String> {
-    let config = ZonkyConfig::load().unwrap_or_default();
-    HubClient::new(config.cache_dir).map_err(|e| e.to_string())
+fn serialize_config_with_path(config: &ZonkyConfig) -> Result<serde_json::Value, String> {
+    let mut val = serde_json::to_value(config).map_err(|e| e.to_string())?;
+    if let Some(obj) = val.as_object_mut() {
+        obj.insert(
+            "config_path".to_string(),
+            serde_json::Value::String(ZonkyConfig::config_path().to_string_lossy().to_string()),
+        );
+    }
+    Ok(val)
 }
 
 // --- Device & System ---
 
 #[tauri::command]
-pub fn get_devices() -> Vec<DeviceInfo> {
-    gpu::detect_devices()
-        .into_iter()
-        .map(|d| DeviceInfo {
-            name: d.device_name(),
-            vendor: d.vendor().to_string(),
-            vram_total: d.vram_total(),
-            vram_free: d.vram_free(),
-            is_gpu: d.is_gpu(),
-        })
-        .collect()
-}
-
-#[tauri::command]
-pub fn get_system_info() -> SystemInfoResponse {
-    let devices: Vec<DeviceInfo> = gpu::detect_devices()
-        .into_iter()
-        .map(|d| DeviceInfo {
-            name: d.device_name(),
-            vendor: d.vendor().to_string(),
-            vram_total: d.vram_total(),
-            vram_free: d.vram_free(),
-            is_gpu: d.is_gpu(),
-        })
-        .collect();
-
-    let (total, available) = gpu::system_memory_bytes();
-
-    SystemInfoResponse {
-        devices,
-        total_memory: total,
-        available_memory: available,
-    }
-}
-
-#[tauri::command]
-pub fn get_setup_status() -> SetupStatusResponse {
-    let status = gpu::setup::check_setup();
-    SetupStatusResponse {
-        gpu_vendor: status.gpu_vendor,
-        gpu_name: status.gpu_name,
-        compute_ready: status.compute_ready,
-        needs_reboot: status.needs_reboot,
-        deps: status
-            .deps
+pub async fn get_devices(manager: State<'_, Arc<ModelManager>>) -> Result<Vec<DeviceInfo>, String> {
+    let used_vram = manager.total_vram_used().await;
+    tokio::task::spawn_blocking(move || {
+        gpu::detect_devices()
             .into_iter()
-            .map(|d| DepInfo {
-                name: d.name,
-                description: d.description,
-                installed: d.installed,
+            .map(|d| {
+                let vram_total = d.vram_total();
+                let raw_free = d.vram_free();
+                let vram_free = if d.is_gpu() && raw_free == vram_total {
+                    raw_free.saturating_sub(used_vram)
+                } else {
+                    raw_free
+                };
+                DeviceInfo {
+                    name: d.device_name(),
+                    vendor: d.vendor().to_string(),
+                    vram_total,
+                    vram_free,
+                    is_gpu: d.is_gpu(),
+                }
             })
-            .collect(),
-        summary: status.summary,
-    }
+            .collect()
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_system_info(
+    manager: State<'_, Arc<ModelManager>>,
+) -> Result<SystemInfoResponse, String> {
+    let used_vram = manager.total_vram_used().await;
+    tokio::task::spawn_blocking(move || {
+        let devices: Vec<DeviceInfo> = gpu::detect_devices()
+            .into_iter()
+            .map(|d| {
+                let vram_total = d.vram_total();
+                let raw_free = d.vram_free();
+                let vram_free = if d.is_gpu() && raw_free == vram_total {
+                    raw_free.saturating_sub(used_vram)
+                } else {
+                    raw_free
+                };
+                DeviceInfo {
+                    name: d.device_name(),
+                    vendor: d.vendor().to_string(),
+                    vram_total,
+                    vram_free,
+                    is_gpu: d.is_gpu(),
+                }
+            })
+            .collect();
+
+        let (total, available) = gpu::system_memory_bytes();
+
+        SystemInfoResponse {
+            devices,
+            total_memory: total,
+            available_memory: available,
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_setup_status() -> Result<SetupStatusResponse, String> {
+    tokio::task::spawn_blocking(|| {
+        let status = gpu::setup::check_setup();
+        SetupStatusResponse {
+            gpu_vendor: status.gpu_vendor,
+            gpu_name: status.gpu_name,
+            compute_ready: status.compute_ready,
+            needs_reboot: status.needs_reboot,
+            deps: status
+                .deps
+                .into_iter()
+                .map(|d| DepInfo {
+                    name: d.name,
+                    description: d.description,
+                    installed: d.installed,
+                })
+                .collect(),
+            summary: status.summary,
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -188,7 +228,7 @@ pub async fn get_config(
     manager: State<'_, Arc<ModelManager>>,
 ) -> Result<serde_json::Value, String> {
     let config = manager.get_config().await;
-    serde_json::to_value(&config).map_err(|e| e.to_string())
+    serialize_config_with_path(&config)
 }
 
 #[tauri::command]
@@ -200,7 +240,7 @@ pub async fn save_config(
         .update_config(config.clone())
         .await
         .map_err(|e| e.to_string())?;
-    serde_json::to_value(&config).map_err(|e| e.to_string())
+    serialize_config_with_path(&config)
 }
 
 #[tauri::command]
@@ -212,7 +252,7 @@ pub async fn reset_config(
         .update_config(defaults.clone())
         .await
         .map_err(|e| e.to_string())?;
-    serde_json::to_value(&defaults).map_err(|e| e.to_string())
+    serialize_config_with_path(&defaults)
 }
 
 #[tauri::command]
@@ -228,8 +268,12 @@ pub async fn clear_model_cache(manager: State<'_, Arc<ModelManager>>) -> Result<
 // --- Model Hub ---
 
 #[tauri::command]
-pub async fn search_models(query: String, limit: usize) -> Result<Vec<SearchResult>, String> {
-    let hub = get_hub_client()?;
+pub async fn search_models(
+    query: String,
+    limit: usize,
+    manager: State<'_, Arc<ModelManager>>,
+) -> Result<Vec<SearchResult>, String> {
+    let hub = manager.hub();
     let results = hub
         .search_models(&query, limit)
         .await
@@ -246,25 +290,30 @@ pub async fn search_models(query: String, limit: usize) -> Result<Vec<SearchResu
 }
 
 #[tauri::command]
-pub fn list_local_models(
+pub async fn list_local_models(
     manager: State<'_, Arc<ModelManager>>,
 ) -> Result<Vec<LocalModelInfo>, String> {
-    let hub = get_hub_client()?;
-    let models = hub.list_local_models().map_err(|e| e.to_string())?;
-    Ok(models
-        .into_iter()
-        .map(|m| {
-            let compatible = manager.probe_compatible_backends(&m.path);
-            LocalModelInfo {
-                id: m.id,
-                repo_id: m.repo_id,
-                filename: m.filename,
-                size: m.file_size,
-                path: m.path.to_string_lossy().to_string(),
-                compatible_backends: compatible,
-            }
-        })
-        .collect())
+    let mgr = manager.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        let hub = mgr.hub();
+        let models = hub.list_local_models().map_err(|e| e.to_string())?;
+        Ok(models
+            .into_iter()
+            .map(|m| {
+                let compatible = mgr.probe_compatible_backends(&m.path);
+                LocalModelInfo {
+                    id: m.id,
+                    repo_id: m.repo_id,
+                    filename: m.filename,
+                    size: m.file_size,
+                    path: m.path.to_string_lossy().to_string(),
+                    compatible_backends: compatible,
+                }
+            })
+            .collect())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -272,7 +321,7 @@ pub async fn list_gguf_files(
     repo_id: String,
     manager: State<'_, Arc<ModelManager>>,
 ) -> Result<Vec<GgufFileInfo>, String> {
-    let hub = get_hub_client()?;
+    let hub = manager.hub();
     let files = hub
         .list_gguf_files(&repo_id)
         .await
@@ -307,8 +356,9 @@ pub async fn pull_model(
     filename: String,
     app: tauri::AppHandle,
     downloads: State<'_, DownloadRegistry>,
+    manager: State<'_, Arc<ModelManager>>,
 ) -> Result<String, String> {
-    let hub = get_hub_client()?;
+    let hub = manager.hub();
     let dl_id = format!("{repo_id}/{filename}");
     let dl_id_clone = dl_id.clone();
     let app_clone = app.clone();
@@ -347,23 +397,32 @@ pub async fn pull_model(
 pub async fn cancel_download(
     id: String,
     downloads: State<'_, DownloadRegistry>,
+    manager: State<'_, Arc<ModelManager>>,
 ) -> Result<String, String> {
     let token_opt = downloads.lock().await.remove(&id);
     if let Some(token) = token_opt {
         token.store(true, Ordering::Relaxed);
     }
-    if let Ok(hub) = get_hub_client() {
-        let _ = zonky_core::hub::cache::ModelCache::new(hub.cache_dir().to_path_buf())
-            .and_then(|c| c.cleanup_partial_files());
-    }
+    let hub = manager.hub();
+    let _ = zonky_core::hub::cache::ModelCache::new(hub.cache_dir().to_path_buf())
+        .and_then(|c| c.cleanup_partial_files());
     Ok(format!("Cancelled download {id}"))
 }
 
 #[tauri::command]
-pub fn delete_model(model_id: String) -> Result<String, String> {
-    let hub = get_hub_client()?;
-    hub.delete_model(&model_id).map_err(|e| e.to_string())?;
-    Ok(format!("Deleted {model_id}"))
+pub async fn delete_model(
+    model_id: String,
+    manager: State<'_, Arc<ModelManager>>,
+) -> Result<String, String> {
+    // Also unload if currently loaded
+    let _ = manager.unload_model(&model_id).await;
+    let hub = manager.hub();
+    tokio::task::spawn_blocking(move || {
+        hub.delete_model(&model_id).map_err(|e| e.to_string())?;
+        Ok(format!("Deleted {model_id}"))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 // --- Inference ---

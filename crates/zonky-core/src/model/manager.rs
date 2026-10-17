@@ -36,7 +36,7 @@ pub struct ModelManager {
     /// Available inference backends
     backends: HashMap<String, Box<dyn InferenceBackend>>,
     /// Hub client for model resolution
-    hub: HubClient,
+    hub: std::sync::RwLock<HubClient>,
     /// Configuration
     config: Arc<RwLock<super::config::ZonkyConfig>>,
     /// Available GPU devices
@@ -70,7 +70,7 @@ impl ModelManager {
         Ok(Self {
             models: Arc::new(RwLock::new(HashMap::new())),
             backends,
-            hub,
+            hub: std::sync::RwLock::new(hub),
             config: Arc::new(RwLock::new(config)),
             devices,
             active_generations: Arc::new(RwLock::new(Vec::new())),
@@ -83,11 +83,25 @@ impl ModelManager {
         self.config.read().await.clone()
     }
 
-    /// Update configuration in memory and persist to disk
+    /// Update configuration in memory, update internal HubClient cache_dir, and persist to disk
     pub async fn update_config(&self, new_config: super::config::ZonkyConfig) -> Result<()> {
         new_config.save()?;
+        let updated_hub = self.hub().with_cache_dir(new_config.cache_dir())?;
+        if let Ok(mut guard) = self.hub.write() {
+            *guard = updated_hub;
+        }
         *self.config.write().await = new_config;
         Ok(())
+    }
+
+    /// Total estimated VRAM currently used by all loaded models
+    pub async fn total_vram_used(&self) -> u64 {
+        self.models
+            .read()
+            .await
+            .values()
+            .map(|m| m.vram_usage)
+            .sum()
     }
 
     /// Cancel all active generation requests and return how many were signalled
@@ -103,7 +117,7 @@ impl ModelManager {
 
     /// Record a telemetry entry and persist to disk
     pub async fn record_telemetry(&self, record: TelemetryRecord) {
-        let cache_dir = self.hub.cache_dir().to_path_buf();
+        let cache_dir = self.hub().cache_dir().to_path_buf();
         let mut history = self.telemetry.write().await;
         history.push(record);
         if history.len() > MAX_TELEMETRY_RECORDS {
@@ -123,7 +137,7 @@ impl ModelManager {
 
     /// Clear recorded telemetry history
     pub async fn clear_telemetry(&self) {
-        let cache_dir = self.hub.cache_dir().to_path_buf();
+        let cache_dir = self.hub().cache_dir().to_path_buf();
         let mut history = self.telemetry.write().await;
         history.clear();
         drop(history);
@@ -440,7 +454,7 @@ impl ModelManager {
 
         let active_generations = self.active_generations.clone();
         let telemetry_store = self.telemetry.clone();
-        let cache_dir = self.hub.cache_dir().to_path_buf();
+        let cache_dir = self.hub().cache_dir().to_path_buf();
         let model_id_owned = model_id.to_string();
         let prompt_chars: usize = request.messages.iter().map(|m| m.content.len()).sum();
         let prompt_tokens_est = (prompt_chars / 4).max(1) as u32;
@@ -516,7 +530,7 @@ impl ModelManager {
 
     /// List all available models (local cache + loaded)
     pub async fn list_all_models(&self) -> Result<Vec<ModelInfo>> {
-        let local_models = self.hub.list_local_models()?;
+        let local_models = self.hub().list_local_models()?;
         let loaded = self.models.read().await;
 
         let models: Vec<ModelInfo> = local_models
@@ -546,9 +560,9 @@ impl ModelManager {
         Ok(models)
     }
 
-    /// Get the hub client reference
-    pub fn hub(&self) -> &HubClient {
-        &self.hub
+    /// Get a clone of the current HubClient
+    pub fn hub(&self) -> HubClient {
+        self.hub.read().expect("HubClient RwLock poisoned").clone()
     }
 
     /// Get available devices
@@ -565,7 +579,7 @@ impl ModelManager {
         }
 
         // Try to find in local cache by ID or alias
-        if let Some(local) = self.hub.list_local_models()?.iter().find(|m| {
+        if let Some(local) = self.hub().list_local_models()?.iter().find(|m| {
             m.id == model_id || m.alias.as_deref() == Some(model_id) || m.repo_id == model_id
         }) {
             if local.path.exists() {

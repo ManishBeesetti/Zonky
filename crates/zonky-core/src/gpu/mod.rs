@@ -58,7 +58,7 @@ impl GpuDevice {
         match self {
             GpuDevice::Cuda { vram_free, .. } => *vram_free,
             GpuDevice::Rocm { vram_free, .. } => *vram_free,
-            GpuDevice::Metal { unified_memory } => *unified_memory / 2,
+            GpuDevice::Metal { unified_memory } => *unified_memory,
             GpuDevice::Cpu => 0,
         }
     }

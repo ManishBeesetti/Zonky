@@ -15,6 +15,7 @@ struct Registry {
 }
 
 /// Manages the local model cache and registry
+#[derive(Debug, Clone)]
 pub struct ModelCache {
     cache_dir: PathBuf,
 }

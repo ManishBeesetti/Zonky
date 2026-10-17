@@ -178,4 +178,28 @@ test.describe("Chat", () => {
     expect(chatCall.args.maxTokens).toBe(2048);
     expect(chatCall.args.messages[0].role).toBe("system");
   });
+
+  test("should allow quick-loading downloaded models directly from Chat", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await page.locator("nav button", { hasText: "Chat" }).click();
+
+    // test-model-2 is downloaded in MOCK_LOCAL_MODELS but not loaded in MOCK_LOADED_MODELS
+    const quickLoadBtn = page
+      .locator("main > div:not([hidden])")
+      .locator("button", { hasText: "test-model-2" });
+    await expect(quickLoadBtn).toBeVisible();
+    await quickLoadBtn.click();
+
+    await expect
+      .poll(async () => {
+        const invokeLog = await page.evaluate(() => window.__TAURI_INVOKE_LOG__);
+        return invokeLog.some(
+          (entry) => entry.cmd === "load_model" && entry.args.modelId === "test-model-2"
+        );
+      })
+      .toBe(true);
+  });
 });
+

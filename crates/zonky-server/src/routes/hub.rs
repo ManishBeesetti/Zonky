@@ -123,6 +123,7 @@ async fn unload_model(
 
 async fn system_info(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
     let loaded_models = state.manager.list_loaded_models().await;
+    let used_vram = state.manager.total_vram_used().await;
     let devices = state.manager.devices();
     let (ram_total, ram_free) = zonky_core::gpu::system_memory_bytes();
 
@@ -131,11 +132,21 @@ async fn system_info(State(state): State<Arc<AppState>>) -> Json<serde_json::Val
         "ram_total": ram_total,
         "ram_free": ram_free,
         "loaded_models": loaded_models,
-        "devices": devices.iter().map(|d| serde_json::json!({
-            "name": d.device_name(),
-            "is_gpu": d.is_gpu(),
-            "vram_free": d.vram_free(),
-        })).collect::<Vec<_>>(),
+        "devices": devices.iter().map(|d| {
+            let vram_total = d.vram_total();
+            let raw_free = d.vram_free();
+            let vram_free = if d.is_gpu() && raw_free == vram_total {
+                raw_free.saturating_sub(used_vram)
+            } else {
+                raw_free
+            };
+            serde_json::json!({
+                "name": d.device_name(),
+                "is_gpu": d.is_gpu(),
+                "vram_total": vram_total,
+                "vram_free": vram_free,
+            })
+        }).collect::<Vec<_>>(),
     }))
 }
 

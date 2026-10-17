@@ -1,5 +1,6 @@
 <script>
   import { onMount } from "svelte";
+  import { refresh as refreshHardware } from "../stores/hardware.svelte.js";
 
   let config = $state(null);
   let loading = $state(true);
@@ -29,6 +30,7 @@
       default_backend: raw.default_backend ?? "auto",
       default_device: typeof raw.default_device === "string" ? raw.default_device : "auto",
       cache_dir: raw.cache_dir ?? "~/.cache/zonky",
+      config_path: raw.config_path ?? "~/.config/zonky/config.toml",
       auto_evict: raw.auto_evict ?? true,
       max_loaded_models: Number(raw.max_loaded_models ?? 4),
       server: {
@@ -78,6 +80,7 @@
       if (updated) {
         config = normalizeConfig(updated);
       }
+      await refreshHardware();
       statusMessage = "Settings saved successfully.";
       statusTone = "success";
     } catch (e) {
@@ -103,6 +106,7 @@
           server: { host: "127.0.0.1", port: 8080, api_key: null, cors_enabled: true },
         });
       }
+      await refreshHardware();
       statusMessage = "Configuration reset to defaults.";
       statusTone = "success";
     } catch (e) {
@@ -115,6 +119,7 @@
     try {
       const { invoke } = await import("@tauri-apps/api/core");
       const removed = await invoke("clear_model_cache");
+      await refreshHardware();
       statusMessage = `Cleared model cache (${removed ?? 0} models removed).`;
       statusTone = "success";
     } catch (e) {
@@ -381,7 +386,7 @@
           <div>
             <p class="text-sm font-medium text-on-surface">Config Path</p>
           </div>
-          <span class="text-xs font-mono text-on-surface-variant">~/.config/zonky/config.toml</span>
+          <span class="text-xs font-mono text-on-surface-variant">{config.config_path}</span>
         </div>
 
         <div class="h-[1px] bg-surface-container-high/30 mx-6"></div>
