@@ -22,7 +22,9 @@ pub struct ModelCache {
 impl ModelCache {
     pub fn new(cache_dir: PathBuf) -> Result<Self> {
         std::fs::create_dir_all(&cache_dir)?;
-        Ok(Self { cache_dir })
+        let cache = Self { cache_dir };
+        let _ = cache.cleanup_partial_files();
+        Ok(cache)
     }
 
     pub fn cache_dir(&self) -> &Path {
@@ -39,6 +41,65 @@ impl ModelCache {
     /// Get the full path where a model file would be stored
     pub fn model_path(&self, repo_id: &str, filename: &str) -> PathBuf {
         self.repo_dir(repo_id).join(filename)
+    }
+
+    /// Get the temporary partial file path used while downloading
+    pub fn partial_model_path(&self, repo_id: &str, filename: &str) -> PathBuf {
+        self.repo_dir(repo_id).join(format!("{filename}.part"))
+    }
+
+    /// Clean up any leftover `.part` files from interrupted or cancelled downloads
+    pub fn cleanup_partial_files(&self) -> Result<usize> {
+        let models_dir = self.cache_dir.join("models");
+        if !models_dir.exists() {
+            return Ok(0);
+        }
+
+        let mut removed = 0;
+        if let Ok(repos) = std::fs::read_dir(&models_dir) {
+            for repo_entry in repos.flatten() {
+                let repo_path = repo_entry.path();
+                if repo_path.is_dir() {
+                    if let Ok(files) = std::fs::read_dir(&repo_path) {
+                        for file_entry in files.flatten() {
+                            let file_path = file_entry.path();
+                            if file_path
+                                .file_name()
+                                .and_then(|n| n.to_str())
+                                .map(|n| n.ends_with(".part"))
+                                .unwrap_or(false)
+                            {
+                                if std::fs::remove_file(&file_path).is_ok() {
+                                    removed += 1;
+                                }
+                            }
+                        }
+                    }
+                    let is_empty = std::fs::read_dir(&repo_path)
+                        .map(|mut d| d.next().is_none())
+                        .unwrap_or(false);
+                    if is_empty {
+                        let _ = std::fs::remove_dir(&repo_path);
+                    }
+                }
+            }
+        }
+        Ok(removed)
+    }
+
+    /// Clear all cached models and reset the registry
+    pub fn clear_all(&self) -> Result<usize> {
+        let registry = self.load_registry()?;
+        let count = registry.models.len();
+
+        let models_dir = self.cache_dir.join("models");
+        if models_dir.exists() {
+            std::fs::remove_dir_all(&models_dir)?;
+        }
+
+        self.save_registry(&Registry::default())?;
+        info!(removed = count, "Cleared all models from cache");
+        Ok(count)
     }
 
     /// Load the registry from disk
@@ -128,11 +189,7 @@ impl ModelCache {
         let model = registry
             .models
             .iter()
-            .find(|m| {
-                m.id == query
-                    || m.alias.as_deref() == Some(query)
-                    || m.repo_id == query
-            })
+            .find(|m| m.id == query || m.alias.as_deref() == Some(query) || m.repo_id == query)
             .cloned();
 
         Ok(model)
@@ -189,7 +246,7 @@ impl ModelCache {
 }
 
 /// Generate a human-readable model ID from repo_id and filename
-fn generate_model_id(_repo_id: &str, filename: &str) -> String {
+pub fn generate_model_id(_repo_id: &str, filename: &str) -> String {
     // e.g. "TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF" + "tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf"
     // -> "tinyllama-1.1b-chat-v1.0-q4_k_m"
     let stem = filename
@@ -201,12 +258,30 @@ fn generate_model_id(_repo_id: &str, filename: &str) -> String {
 }
 
 /// Extract quantization type from filename
-fn extract_quantization(filename: &str) -> Option<String> {
-    let stem = filename
-        .strip_suffix(".gguf")
-        .unwrap_or(filename);
+pub fn extract_quantization(filename: &str) -> Option<String> {
+    let stem = filename.strip_suffix(".gguf").unwrap_or(filename);
 
-    // Look for common quantization patterns
+    // Look for common quantization patterns across '.' or '-' or '_' separators
+    for part in stem.split(['.', '-']) {
+        let quant_upper = part.to_uppercase();
+        if quant_upper.starts_with("Q2_")
+            || quant_upper.starts_with("Q3_")
+            || quant_upper.starts_with("Q4_")
+            || quant_upper.starts_with("Q5_")
+            || quant_upper.starts_with("Q6_")
+            || quant_upper.starts_with("Q8_")
+            || quant_upper.starts_with("IQ1_")
+            || quant_upper.starts_with("IQ2_")
+            || quant_upper.starts_with("IQ3_")
+            || quant_upper.starts_with("IQ4_")
+            || quant_upper == "F16"
+            || quant_upper == "BF16"
+            || quant_upper == "F32"
+        {
+            return Some(quant_upper);
+        }
+    }
+
     let parts: Vec<&str> = stem.split('.').collect();
     if parts.len() >= 2 {
         let quant = parts.last().unwrap();
@@ -222,4 +297,64 @@ fn extract_quantization(filename: &str) -> Option<String> {
     }
 
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_cache() -> (PathBuf, ModelCache) {
+        let dir = std::env::temp_dir().join(format!("zonky_cache_test_{}", uuid::Uuid::new_v4()));
+        let cache = ModelCache::new(dir.clone()).unwrap();
+        (dir, cache)
+    }
+
+    #[test]
+    fn registers_lists_deletes_and_clears_models() {
+        let (dir, cache) = temp_cache();
+        let model_path = cache.model_path(
+            "Bartowski/Qwen2.5-7B-GGUF",
+            "Qwen2.5-7B-Instruct-Q4_K_M.gguf",
+        );
+        std::fs::create_dir_all(model_path.parent().unwrap()).unwrap();
+        std::fs::write(&model_path, b"dummy gguf bytes").unwrap();
+
+        cache
+            .register_model(
+                "Bartowski/Qwen2.5-7B-GGUF",
+                "Qwen2.5-7B-Instruct-Q4_K_M.gguf",
+                &model_path,
+                16,
+            )
+            .unwrap();
+
+        let models = cache.list_models().unwrap();
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].quantization.as_deref(), Some("Q4_K_M"));
+
+        let id = models[0].id.clone();
+        cache.set_alias(&id, "qwen").unwrap();
+        assert!(cache.find_by_id_or_alias("qwen").unwrap().is_some());
+
+        cache.delete_model(&id).unwrap();
+        assert!(cache.list_models().unwrap().is_empty());
+        assert!(!model_path.exists());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn cleans_up_partial_download_files() {
+        let (dir, cache) = temp_cache();
+        let part_path = cache.partial_model_path("TheBloke/Model-GGUF", "model.Q4_K_M.gguf");
+        std::fs::create_dir_all(part_path.parent().unwrap()).unwrap();
+        std::fs::write(&part_path, b"partial data").unwrap();
+        assert!(part_path.exists());
+
+        let removed = cache.cleanup_partial_files().unwrap();
+        assert_eq!(removed, 1);
+        assert!(!part_path.exists());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

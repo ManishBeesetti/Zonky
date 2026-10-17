@@ -52,7 +52,11 @@ impl HubClient {
             debug!("Using HuggingFace auth token");
         }
 
-        Ok(Self { http, download_http, cache })
+        Ok(Self {
+            http,
+            download_http,
+            cache,
+        })
     }
 
     /// Resolve HF token from env vars or cached token file
@@ -89,11 +93,7 @@ impl HubClient {
     }
 
     /// Search for models on HuggingFace Hub
-    pub async fn search_models(
-        &self,
-        query: &str,
-        limit: usize,
-    ) -> Result<Vec<HubModelInfo>> {
+    pub async fn search_models(&self, query: &str, limit: usize) -> Result<Vec<HubModelInfo>> {
         #[derive(Serialize)]
         struct SearchParams<'a> {
             search: &'a str,
@@ -134,8 +134,12 @@ impl HubClient {
             .await
             .map_err(|e| ZonkyError::HubError(format!("Failed to read response: {e:?}")))?;
 
-        let models: Vec<HubModelInfo> = serde_json::from_str(&text)
-            .map_err(|e| ZonkyError::HubError(format!("Failed to parse search results: {e} near byte {}", e.column())))?;
+        let models: Vec<HubModelInfo> = serde_json::from_str(&text).map_err(|e| {
+            ZonkyError::HubError(format!(
+                "Failed to parse search results: {e} near byte {}",
+                e.column()
+            ))
+        })?;
 
         info!(count = models.len(), query = %query, "Search returned models");
         Ok(models)
@@ -159,10 +163,9 @@ impl HubClient {
             )));
         }
 
-        let text = response
-            .text()
-            .await
-            .map_err(|e| ZonkyError::HubError(format!("Failed to read model info response: {e}")))?;
+        let text = response.text().await.map_err(|e| {
+            ZonkyError::HubError(format!("Failed to read model info response: {e}"))
+        })?;
 
         let detail: HubModelDetail = serde_json::from_str(&text)
             .map_err(|e| ZonkyError::HubError(format!("Failed to parse model info: {e}")))?;
@@ -184,9 +187,14 @@ impl HubClient {
             .map_err(|e| ZonkyError::HubError(format!("Tree request failed: {e}")))?;
 
         if !response.status().is_success() {
+            let status = response.status();
+            if status.as_u16() == 401 || status.as_u16() == 403 {
+                return Err(ZonkyError::HubError(format!(
+                    "HF API returned {status} for {repo_id}: repository is gated or private. Set HF_TOKEN to authenticate."
+                )));
+            }
             return Err(ZonkyError::HubError(format!(
-                "HF API returned status {} for {repo_id} (repo may be gated/private)",
-                response.status()
+                "HF API returned status {status} for {repo_id}"
             )));
         }
 
@@ -210,9 +218,7 @@ impl HubClient {
 
         let gguf_files: Vec<HubSibling> = entries
             .into_iter()
-            .filter(|e| {
-                e.entry_type.as_deref() == Some("file") && e.path.ends_with(".gguf")
-            })
+            .filter(|e| e.entry_type.as_deref() == Some("file") && e.path.ends_with(".gguf"))
             .map(|e| HubSibling {
                 filename: e.path,
                 size: e.size,
@@ -233,15 +239,29 @@ impl HubClient {
     where
         F: Fn(DownloadProgress) + Send + 'static,
     {
+        self.download_model_cancellable(repo_id, filename, None, progress_callback)
+            .await
+    }
+
+    /// Download a model file from HuggingFace Hub with progress tracking and optional cancellation token.
+    /// Downloads to a temporary `.part` file and atomically renames on completion; cleans up `.part` on error/cancel.
+    pub async fn download_model_cancellable<F>(
+        &self,
+        repo_id: &str,
+        filename: &str,
+        cancel_token: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+        progress_callback: F,
+    ) -> Result<PathBuf>
+    where
+        F: Fn(DownloadProgress) + Send + 'static,
+    {
         // Check if already cached
         if let Some(local) = self.cache.find_model(repo_id, filename)? {
             info!(repo_id = %repo_id, filename = %filename, "Model already cached");
             return Ok(local.path);
         }
 
-        let url = format!(
-            "https://huggingface.co/{repo_id}/resolve/main/{filename}"
-        );
+        let url = format!("https://huggingface.co/{repo_id}/resolve/main/{filename}");
 
         info!(url = %url, "Downloading model");
 
@@ -253,57 +273,83 @@ impl HubClient {
             .map_err(|e| ZonkyError::DownloadError(format!("Download request failed: {e}")))?;
 
         if !response.status().is_success() {
+            let status = response.status();
+            if status.as_u16() == 401 || status.as_u16() == 403 {
+                return Err(ZonkyError::DownloadError(format!(
+                    "Download failed ({status}): {repo_id} requires authentication. Set HF_TOKEN."
+                )));
+            }
             return Err(ZonkyError::DownloadError(format!(
-                "Download failed with status {}",
-                response.status()
+                "Download failed with status {status}"
             )));
         }
 
         let total_size = response.content_length();
         let dest_path = self.cache.model_path(repo_id, filename);
+        let part_path = self.cache.partial_model_path(repo_id, filename);
 
         // Ensure parent directory exists
-        if let Some(parent) = dest_path.parent() {
+        if let Some(parent) = part_path.parent() {
             tokio::fs::create_dir_all(parent).await?;
         }
 
-        // Download with progress tracking
-        let mut file = tokio::fs::File::create(&dest_path).await?;
+        // Download to .part file with progress tracking and cancellation support
+        let mut file = tokio::fs::File::create(&part_path).await?;
         let mut stream = response.bytes_stream();
         let mut downloaded: u64 = 0;
         let start = std::time::Instant::now();
 
         use futures::StreamExt;
-        while let Some(chunk) = stream.next().await {
-            let chunk = chunk
-                .map_err(|e| ZonkyError::DownloadError(format!("Stream error: {e}")))?;
-            file.write_all(&chunk).await?;
-            downloaded += chunk.len() as u64;
+        let download_result: Result<()> = async {
+            while let Some(chunk) = stream.next().await {
+                if let Some(ref token) = cancel_token {
+                    if token.load(std::sync::atomic::Ordering::Relaxed) {
+                        return Err(ZonkyError::Cancelled(format!(
+                            "Download of {repo_id}/{filename} cancelled"
+                        )));
+                    }
+                }
 
-            let elapsed = start.elapsed().as_secs_f64();
-            let speed = if elapsed > 0.0 {
-                (downloaded as f64 / elapsed) as u64
-            } else {
-                0
-            };
+                let chunk =
+                    chunk.map_err(|e| ZonkyError::DownloadError(format!("Stream error: {e}")))?;
+                file.write_all(&chunk).await?;
+                downloaded += chunk.len() as u64;
 
-            progress_callback(DownloadProgress {
-                downloaded,
-                total: total_size,
-                speed_bytes_per_sec: speed,
-            });
+                let elapsed = start.elapsed().as_secs_f64();
+                let speed = if elapsed > 0.0 {
+                    (downloaded as f64 / elapsed) as u64
+                } else {
+                    0
+                };
+
+                progress_callback(DownloadProgress {
+                    downloaded,
+                    total: total_size,
+                    speed_bytes_per_sec: speed,
+                });
+            }
+            file.flush().await?;
+            Ok(())
+        }
+        .await;
+
+        drop(file);
+
+        if let Err(err) = download_result {
+            let _ = tokio::fs::remove_file(&part_path).await;
+            return Err(err);
         }
 
-        file.flush().await?;
+        // Atomically rename .part to destination
+        if let Err(err) = tokio::fs::rename(&part_path, &dest_path).await {
+            let _ = tokio::fs::remove_file(&part_path).await;
+            return Err(ZonkyError::IoError(err));
+        }
 
         // Register in cache
         let file_size = downloaded;
-        self.cache.register_model(
-            repo_id,
-            filename,
-            &dest_path,
-            file_size,
-        )?;
+        self.cache
+            .register_model(repo_id, filename, &dest_path, file_size)?;
 
         info!(
             repo_id = %repo_id,
@@ -356,9 +402,7 @@ impl HubClient {
 
         // Try each candidate
         for candidate in &candidates {
-            let url = format!(
-                "https://huggingface.co/{candidate}/resolve/main/tokenizer.json"
-            );
+            let url = format!("https://huggingface.co/{candidate}/resolve/main/tokenizer.json");
             debug!(repo = %candidate, "Trying tokenizer source");
 
             let response = match self.http.get(&url).send().await {
@@ -390,6 +434,11 @@ impl HubClient {
     /// Delete a locally cached model
     pub fn delete_model(&self, model_id: &str) -> Result<()> {
         self.cache.delete_model(model_id)
+    }
+
+    /// Clear all locally cached models
+    pub fn clear_cache(&self) -> Result<usize> {
+        self.cache.clear_all()
     }
 
     /// Get the cache directory path
