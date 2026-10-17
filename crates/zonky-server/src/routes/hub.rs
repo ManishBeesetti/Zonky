@@ -16,6 +16,8 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/models/load", post(load_model))
         .route("/api/models/unload", post(unload_model))
         .route("/api/system/info", get(system_info))
+        .route("/api/telemetry", get(get_telemetry).delete(clear_telemetry))
+        .route("/api/generation/cancel", post(cancel_generation))
 }
 
 #[derive(Debug, Deserialize)]
@@ -33,7 +35,12 @@ async fn search_hub(
     State(state): State<Arc<AppState>>,
     Query(query): Query<SearchQuery>,
 ) -> Response {
-    match state.manager.hub().search_models(&query.q, query.limit).await {
+    match state
+        .manager
+        .hub()
+        .search_models(&query.q, query.limit)
+        .await
+    {
         Ok(models) => Json(serde_json::json!({
             "models": models,
             "count": models.len(),
@@ -117,9 +124,12 @@ async fn unload_model(
 async fn system_info(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
     let loaded_models = state.manager.list_loaded_models().await;
     let devices = state.manager.devices();
+    let (ram_total, ram_free) = zonky_core::gpu::system_memory_bytes();
 
     Json(serde_json::json!({
         "version": env!("CARGO_PKG_VERSION"),
+        "ram_total": ram_total,
+        "ram_free": ram_free,
         "loaded_models": loaded_models,
         "devices": devices.iter().map(|d| serde_json::json!({
             "name": d.device_name(),
@@ -127,4 +137,20 @@ async fn system_info(State(state): State<Arc<AppState>>) -> Json<serde_json::Val
             "vram_free": d.vram_free(),
         })).collect::<Vec<_>>(),
     }))
+}
+
+async fn get_telemetry(
+    State(state): State<Arc<AppState>>,
+) -> Json<zonky_core::types::TelemetrySummary> {
+    Json(state.manager.get_telemetry().await)
+}
+
+async fn clear_telemetry(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
+    state.manager.clear_telemetry().await;
+    Json(serde_json::json!({ "status": "cleared" }))
+}
+
+async fn cancel_generation(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
+    let cancelled = state.manager.cancel_generation().await;
+    Json(serde_json::json!({ "status": "cancelled", "cancelled_count": cancelled }))
 }
