@@ -135,6 +135,47 @@ test.describe("Chat", () => {
   test("should show no models loaded hint when none loaded", async ({
     page,
   }) => {
-    test.skip();
+    await page.addInitScript(() => {
+      window.__TAURI_MOCK_OVERRIDES__ = {
+        list_loaded_models: [],
+      };
+    });
+    await page.goto("/");
+    await page.locator("nav button", { hasText: "Chat" }).click();
+
+    await expect(
+      page.locator("main > div:not([hidden])").getByText("No models loaded")
+    ).toBeVisible();
+  });
+
+  test("should forward inference parameters and system prompt on send", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await page.locator("nav button", { hasText: "Chat" }).click();
+
+    // Select Coder system prompt preset
+    await page.locator("main aside button", { hasText: "Coder" }).click();
+
+    const textarea = page.locator(
+      'main textarea[placeholder="Enter inference instructions..."]'
+    );
+    await textarea.fill("Write a function");
+    await page.locator("main button", { hasText: "Run Inference" }).click();
+
+    await expect(
+      page.locator("main").getByText(
+        "Hello! I'm a test response from the mocked inference backend."
+      )
+    ).toBeVisible({ timeout: 5000 });
+
+    const invokeLog = await page.evaluate(() => window.__TAURI_INVOKE_LOG__);
+    const chatCall = invokeLog.find((entry) => entry.cmd === "chat_complete");
+    expect(chatCall).toBeTruthy();
+    expect(chatCall.args.temperature).toBe(0.75);
+    expect(chatCall.args.topP).toBe(0.9);
+    expect(chatCall.args.repeatPenalty).toBe(1.1);
+    expect(chatCall.args.maxTokens).toBe(2048);
+    expect(chatCall.args.messages[0].role).toBe("system");
   });
 });
