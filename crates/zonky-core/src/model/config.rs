@@ -96,15 +96,46 @@ impl ZonkyConfig {
         Ok(config)
     }
 
+    /// Validate configuration values before saving or applying
+    pub fn validate(&self) -> Result<()> {
+        if self.server.host.trim().is_empty() {
+            return Err(ZonkyError::ConfigError(
+                "Server host cannot be empty".to_string(),
+            ));
+        }
+        if self.server.port == 0 {
+            return Err(ZonkyError::ConfigError(
+                "Server port must be between 1 and 65535".to_string(),
+            ));
+        }
+        if self.max_loaded_models == 0 {
+            return Err(ZonkyError::ConfigError(
+                "max_loaded_models must be at least 1".to_string(),
+            ));
+        }
+        if self.cache_dir.as_os_str().is_empty() {
+            return Err(ZonkyError::ConfigError(
+                "cache_dir cannot be empty".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
     /// Save config to the default path
     pub fn save(&self) -> Result<()> {
         let path = Self::config_path();
+        self.save_to(&path)
+    }
+
+    /// Save config to a specific path
+    pub fn save_to(&self, path: &std::path::Path) -> Result<()> {
+        self.validate()?;
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
         let content = toml::to_string_pretty(self)
             .map_err(|e| ZonkyError::ConfigError(format!("Failed to serialize config: {e}")))?;
-        std::fs::write(&path, content)?;
+        std::fs::write(path, content)?;
         info!(path = %path.display(), "Saved config");
         Ok(())
     }
@@ -142,4 +173,37 @@ fn default_true() -> bool {
 
 fn default_max_models() -> usize {
     4
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn saves_and_loads_config_roundtrip() {
+        let path = std::env::temp_dir().join(format!("zonky_config_{}.toml", uuid::Uuid::new_v4()));
+        let mut cfg = ZonkyConfig::default();
+        cfg.server.port = 9091;
+        cfg.max_loaded_models = 2;
+        cfg.auto_evict = false;
+        cfg.save_to(&path).unwrap();
+
+        let loaded = ZonkyConfig::load_from(&path).unwrap();
+        assert_eq!(loaded.server.port, 9091);
+        assert_eq!(loaded.max_loaded_models, 2);
+        assert!(!loaded.auto_evict);
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn rejects_invalid_config_values() {
+        let mut cfg = ZonkyConfig::default();
+        cfg.max_loaded_models = 0;
+        assert!(cfg.validate().is_err());
+
+        let mut cfg2 = ZonkyConfig::default();
+        cfg2.server.host = "   ".to_string();
+        assert!(cfg2.validate().is_err());
+    }
 }
