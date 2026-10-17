@@ -35,14 +35,21 @@ pub struct SetupStatus {
 /// Detect GPU hardware and check all necessary dependencies.
 pub fn check_setup() -> SetupStatus {
     let devices = detect_devices();
+    check_setup_for_platform(std::env::consts::OS, &devices)
+}
 
+/// Platform-aware setup status evaluation (testable across OS and device fixtures).
+pub fn check_setup_for_platform(os: &str, devices: &[super::GpuDevice]) -> SetupStatus {
     // Find the best GPU (skip CPU)
     let gpu = devices.iter().find(|d| d.is_gpu());
 
-    match gpu {
-        Some(super::GpuDevice::Rocm { name, .. }) => check_amd_setup(name),
-        Some(super::GpuDevice::Cuda { name, .. }) => check_nvidia_setup(name),
-        Some(super::GpuDevice::Metal { .. }) => check_metal_setup(),
+    match (os, gpu) {
+        ("windows", Some(super::GpuDevice::Rocm { name, .. })) => check_windows_amd_setup(name),
+        ("windows", Some(super::GpuDevice::Cuda { name, .. })) => check_windows_nvidia_setup(name),
+        ("macos", Some(super::GpuDevice::Metal { .. })) => check_metal_setup(),
+        (_, Some(super::GpuDevice::Metal { .. })) => check_metal_setup(),
+        (_, Some(super::GpuDevice::Rocm { name, .. })) => check_amd_setup(name),
+        (_, Some(super::GpuDevice::Cuda { name, .. })) => check_nvidia_setup(name),
         _ => SetupStatus {
             gpu_vendor: "None".into(),
             gpu_name: "No GPU detected".into(),
@@ -95,11 +102,14 @@ pub fn run_install(status: &SetupStatus) -> Result<String, String> {
 
     info!("Running: {}", cmd);
 
-    let output = Command::new("sh")
-        .arg("-c")
-        .arg(&cmd)
-        .output()
-        .map_err(|e| format!("Failed to execute install command: {e}"))?;
+    let output = if cfg!(target_os = "windows") {
+        Command::new("powershell")
+            .args(["-NoProfile", "-Command", &cmd])
+            .output()
+    } else {
+        Command::new("sh").arg("-c").arg(&cmd).output()
+    }
+    .map_err(|e| format!("Failed to execute install command: {e}"))?;
 
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
@@ -114,7 +124,112 @@ pub fn run_install(status: &SetupStatus) -> Result<String, String> {
     }
 }
 
-// --- AMD ROCm checks ---
+// --- Windows GPU checks ---
+
+fn check_windows_amd_setup(gpu_name: &str) -> SetupStatus {
+    let mut deps = Vec::new();
+
+    let has_vulkaninfo = bin_exists_on_os("windows", "vulkaninfo");
+    deps.push(Dependency {
+        name: "Vulkan Runtime".into(),
+        description: "Vulkan runtime for AMD/Intel GPU acceleration on Windows".into(),
+        installed: has_vulkaninfo,
+        install_cmd: if !has_vulkaninfo {
+            Some("winget install KhronosGroup.VulkanRT".into())
+        } else {
+            None
+        },
+        required_by: "llama.cpp Vulkan backend".into(),
+    });
+
+    let has_cmake = bin_exists_on_os("windows", "cmake");
+    deps.push(Dependency {
+        name: "CMake".into(),
+        description: "Build system generator for native compilation".into(),
+        installed: has_cmake,
+        install_cmd: if !has_cmake {
+            Some("winget install Kitware.CMake".into())
+        } else {
+            None
+        },
+        required_by: "Rust native compilation".into(),
+    });
+
+    let all_good = deps.iter().all(|d| d.installed);
+    SetupStatus {
+        gpu_vendor: "AMD".into(),
+        gpu_name: gpu_name.to_string(),
+        compute_ready: all_good,
+        needs_reboot: false,
+        summary: if all_good {
+            "Windows AMD/Vulkan GPU dependencies are installed. GPU compute is ready.".into()
+        } else {
+            let missing_count = deps.iter().filter(|d| !d.installed).count();
+            format!("{missing_count} missing Windows dependency(ies). Run `zonky setup --install` or install via winget.")
+        },
+        deps,
+    }
+}
+
+fn check_windows_nvidia_setup(gpu_name: &str) -> SetupStatus {
+    let mut deps = Vec::new();
+
+    let has_nvidia_smi = bin_exists_on_os("windows", "nvidia-smi");
+    deps.push(Dependency {
+        name: "NVIDIA Driver".into(),
+        description: "Windows NVIDIA GPU driver (nvidia-smi)".into(),
+        installed: has_nvidia_smi,
+        install_cmd: if !has_nvidia_smi {
+            Some("winget install Nvidia.GeForceExperience".into())
+        } else {
+            None
+        },
+        required_by: "CUDA compute".into(),
+    });
+
+    let has_cuda = bin_exists_on_os("windows", "nvcc");
+    deps.push(Dependency {
+        name: "CUDA Toolkit".into(),
+        description: "NVIDIA CUDA Toolkit for Windows (nvcc)".into(),
+        installed: has_cuda,
+        install_cmd: if !has_cuda {
+            Some("winget install Nvidia.CUDA".into())
+        } else {
+            None
+        },
+        required_by: "CUDA backend".into(),
+    });
+
+    let has_cmake = bin_exists_on_os("windows", "cmake");
+    deps.push(Dependency {
+        name: "CMake".into(),
+        description: "Build system generator for native compilation".into(),
+        installed: has_cmake,
+        install_cmd: if !has_cmake {
+            Some("winget install Kitware.CMake".into())
+        } else {
+            None
+        },
+        required_by: "Rust native compilation".into(),
+    });
+
+    let all_good = deps.iter().all(|d| d.installed);
+    SetupStatus {
+        gpu_vendor: "NVIDIA".into(),
+        gpu_name: gpu_name.to_string(),
+        compute_ready: all_good,
+        needs_reboot: false,
+        summary: if all_good {
+            "Windows NVIDIA CUDA dependencies are installed. GPU compute is ready.".into()
+        } else {
+            let missing_count = deps.iter().filter(|d| !d.installed).count();
+            format!("{missing_count} missing Windows dependency(ies). Run `zonky setup --install` or install via winget.")
+        },
+        deps,
+    }
+}
+
+// --- Linux AMD ROCm checks ---
 
 fn check_amd_setup(gpu_name: &str) -> SetupStatus {
     let distro = detect_distro();
@@ -153,7 +268,11 @@ fn check_amd_setup(gpu_name: &str) -> SetupStatus {
         name: "rocminfo".into(),
         description: "ROCm system info utility".into(),
         installed: has_rocminfo,
-        install_cmd: if !has_rocminfo { Some("apt:rocminfo".into()) } else { None },
+        install_cmd: if !has_rocminfo {
+            Some("apt:rocminfo".into())
+        } else {
+            None
+        },
         required_by: "GPU diagnostics".into(),
     });
 
@@ -165,18 +284,26 @@ fn check_amd_setup(gpu_name: &str) -> SetupStatus {
         name: "hip-runtime-amd".into(),
         description: "AMD HIP runtime for GPU compute kernels".into(),
         installed: has_hip,
-        install_cmd: if !has_hip { Some("apt:hip-runtime-amd".into()) } else { None },
+        install_cmd: if !has_hip {
+            Some("apt:hip-runtime-amd".into())
+        } else {
+            None
+        },
         required_by: "Candle ROCm backend".into(),
     });
 
     // 5. hipBLAS (BLAS on AMD GPU)
-    let has_hipblas = Path::new("/opt/rocm/lib/libhipblas.so").exists()
-        || pkg_config_exists("hipblas");
+    let has_hipblas =
+        Path::new("/opt/rocm/lib/libhipblas.so").exists() || pkg_config_exists("hipblas");
     deps.push(Dependency {
         name: "hipblas-dev".into(),
         description: "HIP BLAS library for matrix operations".into(),
         installed: has_hipblas,
-        install_cmd: if !has_hipblas { Some("apt:hipblas-dev".into()) } else { None },
+        install_cmd: if !has_hipblas {
+            Some("apt:hipblas-dev".into())
+        } else {
+            None
+        },
         required_by: "Candle ROCm backend".into(),
     });
 
@@ -190,8 +317,12 @@ fn check_amd_setup(gpu_name: &str) -> SetupStatus {
         install_cmd: if !(in_render && in_video) {
             let user = std::env::var("USER").unwrap_or_else(|_| "$(whoami)".into());
             let mut cmds = Vec::new();
-            if !in_render { cmds.push(format!("sudo usermod -aG render {user}")); }
-            if !in_video { cmds.push(format!("sudo usermod -aG video {user}")); }
+            if !in_render {
+                cmds.push(format!("sudo usermod -aG render {user}"));
+            }
+            if !in_video {
+                cmds.push(format!("sudo usermod -aG video {user}"));
+            }
             Some(cmds.join(" && "))
         } else {
             None
@@ -231,7 +362,11 @@ fn check_nvidia_setup(gpu_name: &str) -> SetupStatus {
         name: "nvidia-driver".into(),
         description: "NVIDIA GPU driver".into(),
         installed: has_driver,
-        install_cmd: if !has_driver { Some("apt:nvidia-driver-580".into()) } else { None },
+        install_cmd: if !has_driver {
+            Some("apt:nvidia-driver-580".into())
+        } else {
+            None
+        },
         required_by: "CUDA compute".into(),
     });
 
@@ -241,7 +376,11 @@ fn check_nvidia_setup(gpu_name: &str) -> SetupStatus {
         name: "cuda-toolkit".into(),
         description: "NVIDIA CUDA toolkit".into(),
         installed: has_cuda,
-        install_cmd: if !has_cuda { Some("apt:nvidia-cuda-toolkit".into()) } else { None },
+        install_cmd: if !has_cuda {
+            Some("apt:nvidia-cuda-toolkit".into())
+        } else {
+            None
+        },
         required_by: "Candle CUDA backend".into(),
     });
 
@@ -253,7 +392,11 @@ fn check_nvidia_setup(gpu_name: &str) -> SetupStatus {
         name: "libcublas-dev".into(),
         description: "CUDA BLAS library for matrix operations".into(),
         installed: has_cublas,
-        install_cmd: if !has_cublas { Some("apt:libcublas-dev".into()) } else { None },
+        install_cmd: if !has_cublas {
+            Some("apt:libcublas-dev".into())
+        } else {
+            None
+        },
         required_by: "Candle CUDA backend".into(),
     });
 
@@ -297,7 +440,11 @@ fn check_build_tools(deps: &mut Vec<Dependency>) {
         name: "gcc".into(),
         description: "C compiler (required to build native code)".into(),
         installed: has_gcc,
-        install_cmd: if !has_gcc { Some("apt:build-essential".into()) } else { None },
+        install_cmd: if !has_gcc {
+            Some("apt:build-essential".into())
+        } else {
+            None
+        },
         required_by: "Rust native compilation".into(),
     });
 
@@ -306,7 +453,11 @@ fn check_build_tools(deps: &mut Vec<Dependency>) {
         name: "cmake".into(),
         description: "Build system generator".into(),
         installed: has_cmake,
-        install_cmd: if !has_cmake { Some("apt:cmake".into()) } else { None },
+        install_cmd: if !has_cmake {
+            Some("apt:cmake".into())
+        } else {
+            None
+        },
         required_by: "Candle native builds".into(),
     });
 
@@ -315,19 +466,28 @@ fn check_build_tools(deps: &mut Vec<Dependency>) {
         name: "pkg-config".into(),
         description: "Package configuration tool".into(),
         installed: has_pkg_config,
-        install_cmd: if !has_pkg_config { Some("apt:pkg-config".into()) } else { None },
+        install_cmd: if !has_pkg_config {
+            Some("apt:pkg-config".into())
+        } else {
+            None
+        },
         required_by: "Rust native compilation".into(),
     });
 }
 
 // --- Utility functions ---
 
-fn which_exists(bin: &str) -> bool {
-    Command::new("which")
+fn bin_exists_on_os(os: &str, bin: &str) -> bool {
+    let locator = if os == "windows" { "where" } else { "which" };
+    Command::new(locator)
         .arg(bin)
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false)
+}
+
+fn which_exists(bin: &str) -> bool {
+    bin_exists_on_os(std::env::consts::OS, bin)
 }
 
 fn pkg_config_exists(lib: &str) -> bool {
@@ -369,9 +529,9 @@ fn user_in_group_etc(group: &str) -> bool {
             content.lines().any(|line| {
                 let parts: Vec<&str> = line.split(':').collect();
                 parts.first() == Some(&group)
-                    && parts.get(3).map_or(false, |members| {
-                        members.split(',').any(|m| m == user)
-                    })
+                    && parts
+                        .get(3)
+                        .map_or(false, |members| members.split(',').any(|m| m == user))
             })
         })
         .unwrap_or(false)
@@ -379,17 +539,21 @@ fn user_in_group_etc(group: &str) -> bool {
 
 /// Check if group membership was added but requires a reboot/relogin to take effect.
 pub fn needs_reboot_for_groups() -> bool {
+    if cfg!(not(target_os = "linux")) {
+        return false;
+    }
     let groups = ["render", "video"];
     groups.iter().any(|g| {
         // In /etc/group but NOT in current session
-        user_in_group_etc(g) && !Command::new("id")
-            .arg("-nG")
-            .output()
-            .map(|o| {
-                let out = String::from_utf8_lossy(&o.stdout);
-                out.split_whitespace().any(|s| s == *g)
-            })
-            .unwrap_or(false)
+        user_in_group_etc(g)
+            && !Command::new("id")
+                .arg("-nG")
+                .output()
+                .map(|o| {
+                    let out = String::from_utf8_lossy(&o.stdout);
+                    out.split_whitespace().any(|s| s == *g)
+                })
+                .unwrap_or(false)
     })
 }
 
@@ -418,5 +582,53 @@ fn rocm_install_cmd(distro: &str) -> String {
             debug!("Unknown distro {distro} — falling back to apt");
             "apt:rocm-dev".into()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::gpu::GpuDevice;
+
+    #[test]
+    fn windows_setup_never_suggests_linux_commands() {
+        let amd_devices = vec![
+            GpuDevice::Rocm {
+                index: 0,
+                name: "AMD Radeon RX 7900 XTX".into(),
+                vram_total: 24 * 1024 * 1024 * 1024,
+                vram_free: 20 * 1024 * 1024 * 1024,
+                is_apu: false,
+            },
+            GpuDevice::Cpu,
+        ];
+        let status = check_setup_for_platform("windows", &amd_devices);
+        assert_eq!(status.gpu_vendor, "AMD");
+        assert!(!status.needs_reboot);
+        for dep in &status.deps {
+            assert!(!dep.description.contains("/dev/kfd"));
+            assert!(!dep.name.contains("group"));
+            if let Some(ref cmd) = dep.install_cmd {
+                assert!(!cmd.contains("apt"));
+                assert!(!cmd.contains("usermod"));
+            }
+        }
+    }
+
+    #[test]
+    fn macos_and_cpu_setup_status_work() {
+        let metal_devices = vec![
+            GpuDevice::Metal {
+                unified_memory: 32 * 1024 * 1024 * 1024,
+            },
+            GpuDevice::Cpu,
+        ];
+        let metal_status = check_setup_for_platform("macos", &metal_devices);
+        assert!(metal_status.compute_ready);
+        assert_eq!(metal_status.gpu_vendor, "Apple");
+
+        let cpu_status = check_setup_for_platform("windows", &[GpuDevice::Cpu]);
+        assert!(!cpu_status.compute_ready);
+        assert_eq!(cpu_status.gpu_vendor, "None");
     }
 }

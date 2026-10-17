@@ -289,27 +289,26 @@ fn detect_amd_sysfs(device_path: &Path, index: usize) -> Option<GpuDevice> {
 
 // --- Windows detection ---
 
-#[cfg(target_os = "windows")]
-#[derive(Debug, Deserialize)]
-struct WindowsVideoController {
+#[allow(dead_code)]
+#[derive(Debug, Deserialize, Clone)]
+pub(crate) struct WindowsVideoController {
     #[serde(rename = "Name")]
-    name: Option<String>,
+    pub name: Option<String>,
     #[serde(rename = "AdapterRAM")]
-    adapter_ram: Option<u64>,
+    pub adapter_ram: Option<u64>,
 }
 
-#[cfg(target_os = "windows")]
-#[derive(Debug, Deserialize)]
-struct WindowsMemoryInfo {
+#[allow(dead_code)]
+#[derive(Debug, Deserialize, Clone)]
+pub(crate) struct WindowsMemoryInfo {
     #[serde(rename = "FreePhysicalMemory")]
-    free_physical_memory_kb: Option<u64>,
+    pub free_physical_memory_kb: Option<u64>,
     #[serde(rename = "TotalVisibleMemorySize")]
-    total_visible_memory_kb: Option<u64>,
+    pub total_visible_memory_kb: Option<u64>,
 }
 
 #[cfg(target_os = "windows")]
 fn detect_windows_gpus() -> Vec<GpuDevice> {
-    let mut devices = Vec::new();
     let output = std::process::Command::new("powershell")
         .args([
             "-NoProfile",
@@ -319,20 +318,43 @@ fn detect_windows_gpus() -> Vec<GpuDevice> {
         .output();
 
     let Ok(output) = output else {
-        return devices;
+        return Vec::new();
     };
 
     if !output.status.success() {
-        return devices;
+        return Vec::new();
     }
 
     let json = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if json.is_empty() || json == "null" {
-        return devices;
-    }
-
-    let controllers = parse_windows_video_controllers(&json);
     let (sys_total, sys_free) = windows_system_memory_bytes();
+
+    build_windows_gpu_devices(&json, sys_total, sys_free, Some(&query_nvidia_memory))
+}
+
+#[allow(dead_code)]
+pub(crate) fn parse_windows_video_controllers(json: &str) -> Vec<WindowsVideoController> {
+    let trimmed = json.trim();
+    if trimmed.is_empty() || trimmed == "null" {
+        return Vec::new();
+    }
+    if let Ok(arr) = serde_json::from_str::<Vec<WindowsVideoController>>(trimmed) {
+        return arr;
+    }
+    if let Ok(one) = serde_json::from_str::<WindowsVideoController>(trimmed) {
+        return vec![one];
+    }
+    Vec::new()
+}
+
+#[allow(dead_code)]
+pub(crate) fn build_windows_gpu_devices(
+    json: &str,
+    sys_total: u64,
+    sys_free: u64,
+    nvidia_query: Option<&dyn Fn(usize, u64) -> (u64, u64)>,
+) -> Vec<GpuDevice> {
+    let mut devices = Vec::new();
+    let controllers = parse_windows_video_controllers(json);
 
     let mut cuda_index = 0usize;
     let mut rocm_index = 0usize;
@@ -351,7 +373,10 @@ fn detect_windows_gpus() -> Vec<GpuDevice> {
         let adapter_ram = vc.adapter_ram.unwrap_or(0);
 
         if lower.contains("nvidia") {
-            let (vram_total, vram_free) = query_nvidia_memory(cuda_index, adapter_ram);
+            let (vram_total, vram_free) = match nvidia_query {
+                Some(q) => q(cuda_index, adapter_ram),
+                None => (adapter_ram, adapter_ram.saturating_mul(8) / 10),
+            };
             devices.push(GpuDevice::Cuda {
                 index: cuda_index,
                 name,
@@ -406,15 +431,26 @@ fn detect_windows_gpus() -> Vec<GpuDevice> {
     devices
 }
 
-#[cfg(target_os = "windows")]
-fn parse_windows_video_controllers(json: &str) -> Vec<WindowsVideoController> {
-    if let Ok(arr) = serde_json::from_str::<Vec<WindowsVideoController>>(json) {
-        return arr;
+#[allow(dead_code)]
+pub(crate) fn parse_windows_memory_json(json: &str) -> (u64, u64) {
+    let trimmed = json.trim();
+    if trimmed.is_empty() || trimmed == "null" {
+        return (0, 0);
     }
-    if let Ok(one) = serde_json::from_str::<WindowsVideoController>(json) {
-        return vec![one];
-    }
-    Vec::new()
+
+    let Ok(mem) = serde_json::from_str::<WindowsMemoryInfo>(trimmed) else {
+        return (0, 0);
+    };
+
+    let total = mem
+        .total_visible_memory_kb
+        .unwrap_or(0)
+        .saturating_mul(1024);
+    let free = mem
+        .free_physical_memory_kb
+        .unwrap_or(0)
+        .saturating_mul(1024);
+    (total, free.min(total))
 }
 
 #[cfg(target_os = "windows")]
@@ -435,23 +471,7 @@ fn windows_system_memory_bytes() -> (u64, u64) {
     }
 
     let json = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if json.is_empty() || json == "null" {
-        return (0, 0);
-    }
-
-    let Ok(mem) = serde_json::from_str::<WindowsMemoryInfo>(&json) else {
-        return (0, 0);
-    };
-
-    let total = mem
-        .total_visible_memory_kb
-        .unwrap_or(0)
-        .saturating_mul(1024);
-    let free = mem
-        .free_physical_memory_kb
-        .unwrap_or(0)
-        .saturating_mul(1024);
-    (total, free)
+    parse_windows_memory_json(&json)
 }
 
 #[cfg(target_os = "windows")]
@@ -474,7 +494,7 @@ fn query_nvidia_memory(index: usize, fallback_total: u64) -> (u64, u64) {
         let total = fallback_total;
         let free = total.saturating_mul(8) / 10;
         return (total, free);
-    }
+    };
 
     let line = String::from_utf8_lossy(&output.stdout)
         .lines()
@@ -494,6 +514,127 @@ fn query_nvidia_memory(index: usize, fallback_total: u64) -> (u64, u64) {
     let total = total_mib.saturating_mul(1024 * 1024);
     let free = free_mib.saturating_mul(1024 * 1024).min(total);
     (total, free)
+}
+
+// --- Cross-platform system memory ---
+
+/// Return `(total_ram_bytes, available_ram_bytes)` across Linux, macOS, and Windows.
+pub fn system_memory_bytes() -> (u64, u64) {
+    #[cfg(target_os = "linux")]
+    {
+        let content = std::fs::read_to_string("/proc/meminfo").unwrap_or_default();
+        return parse_proc_meminfo(&content);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        return windows_system_memory_bytes();
+    }
+    #[cfg(target_os = "macos")]
+    {
+        return macos_system_memory_bytes();
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
+    {
+        (0, 0)
+    }
+}
+
+#[allow(dead_code)]
+pub(crate) fn parse_proc_meminfo(content: &str) -> (u64, u64) {
+    let mut total = 0u64;
+    let mut available = 0u64;
+    let mut free = 0u64;
+    for line in content.lines() {
+        if line.starts_with("MemTotal:") {
+            total = line
+                .split_whitespace()
+                .nth(1)
+                .and_then(|v| v.parse::<u64>().ok())
+                .unwrap_or(0)
+                .saturating_mul(1024);
+        } else if line.starts_with("MemAvailable:") {
+            available = line
+                .split_whitespace()
+                .nth(1)
+                .and_then(|v| v.parse::<u64>().ok())
+                .unwrap_or(0)
+                .saturating_mul(1024);
+        } else if line.starts_with("MemFree:") {
+            free = line
+                .split_whitespace()
+                .nth(1)
+                .and_then(|v| v.parse::<u64>().ok())
+                .unwrap_or(0)
+                .saturating_mul(1024);
+        }
+    }
+    if available == 0 && free > 0 {
+        available = free;
+    }
+    (total, available.min(total))
+}
+
+#[cfg(target_os = "macos")]
+fn macos_system_memory_bytes() -> (u64, u64) {
+    let total = std::process::Command::new("sysctl")
+        .args(["-n", "hw.memsize"])
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .and_then(|s| s.trim().parse::<u64>().ok())
+        .unwrap_or(0);
+
+    let vm_stat = std::process::Command::new("vm_stat")
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .unwrap_or_default();
+
+    let available = parse_macos_vm_stat(&vm_stat, total);
+    (total, available)
+}
+
+pub(crate) fn parse_macos_vm_stat(vm_stat: &str, total_bytes: u64) -> u64 {
+    let mut page_size = 16384u64;
+    let mut free_pages = 0u64;
+    let mut inactive_pages = 0u64;
+    let mut speculative_pages = 0u64;
+
+    for line in vm_stat.lines() {
+        if let Some(idx) = line.find("page size of ") {
+            let after = &line[idx + "page size of ".len()..];
+            if let Some(num_str) = after.split_whitespace().next() {
+                if let Ok(ps) = num_str.parse::<u64>() {
+                    page_size = ps;
+                }
+            }
+        } else if line.starts_with("Pages free:") {
+            free_pages = parse_vm_stat_value(line);
+        } else if line.starts_with("Pages inactive:") {
+            inactive_pages = parse_vm_stat_value(line);
+        } else if line.starts_with("Pages speculative:") {
+            speculative_pages = parse_vm_stat_value(line);
+        }
+    }
+
+    let avail = (free_pages + inactive_pages + speculative_pages).saturating_mul(page_size);
+    if avail > 0 {
+        if total_bytes > 0 {
+            avail.min(total_bytes)
+        } else {
+            avail
+        }
+    } else {
+        total_bytes / 2
+    }
+}
+
+fn parse_vm_stat_value(line: &str) -> u64 {
+    line.split(':')
+        .nth(1)
+        .map(|s| s.trim().trim_end_matches('.'))
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(0)
 }
 
 // --- Helper functions ---
@@ -543,27 +684,13 @@ fn pci_device_name(slot: &str) -> Option<String> {
 /// Total system memory in bytes (from /proc/meminfo)
 #[cfg(target_os = "linux")]
 fn system_memory_total() -> u64 {
-    read_sysfs_string(Path::new("/proc/meminfo"))
-        .and_then(|s| {
-            s.lines()
-                .find(|l| l.starts_with("MemTotal:"))
-                .and_then(|l| l.split_whitespace().nth(1)?.parse::<u64>().ok())
-        })
-        .unwrap_or(0)
-        * 1024
+    system_memory_bytes().0
 }
 
 /// Available system memory in bytes
 #[cfg(target_os = "linux")]
 fn system_memory_available() -> u64 {
-    read_sysfs_string(Path::new("/proc/meminfo"))
-        .and_then(|s| {
-            s.lines()
-                .find(|l| l.starts_with("MemAvailable:"))
-                .and_then(|l| l.split_whitespace().nth(1)?.parse::<u64>().ok())
-        })
-        .unwrap_or(0)
-        * 1024
+    system_memory_bytes().1
 }
 
 /// Detect NVIDIA GPUs via NVML (richer data than sysfs)
@@ -622,5 +749,54 @@ pub fn device_summary() -> String {
             .map(|d| d.device_name())
             .collect();
         format!("{} GPU(s): {}", gpu_count, names.join(", "))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_linux_proc_meminfo() {
+        let sample = "MemTotal:       32768000 kB\nMemFree:         4000000 kB\nMemAvailable:   24576000 kB\n";
+        let (total, avail) = parse_proc_meminfo(sample);
+        assert_eq!(total, 32768000 * 1024);
+        assert_eq!(avail, 24576000 * 1024);
+    }
+
+    #[test]
+    fn parses_windows_memory_and_gpus() {
+        let mem_json = r#"{"TotalVisibleMemorySize":67108864,"FreePhysicalMemory":50331648}"#;
+        let (total, free) = parse_windows_memory_json(mem_json);
+        assert_eq!(total, 67108864 * 1024);
+        assert_eq!(free, 50331648 * 1024);
+
+        let gpu_json = r#"[
+            {"Name":"Microsoft Basic Display Adapter","AdapterRAM":0},
+            {"Name":"NVIDIA GeForce RTX 4090","AdapterRAM":25769803776},
+            {"Name":"AMD Radeon(TM) 8060S Graphics","AdapterRAM":4294967296}
+        ]"#;
+        let gpus = build_windows_gpu_devices(gpu_json, total, free, None);
+        assert_eq!(gpus.len(), 2);
+        assert_eq!(gpus[0].vendor(), "NVIDIA");
+        assert!(gpus[0].device_name().contains("RTX 4090"));
+        assert_eq!(gpus[0].vram_total(), 25769803776);
+        assert_eq!(gpus[1].vendor(), "AMD");
+        assert!(gpus[1].device_name().contains("8060S"));
+        assert!(gpus[1].vram_total() > 0);
+    }
+
+    #[test]
+    fn parses_macos_vm_stat() {
+        let vm = "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free:                              100000.\nPages active:                            200000.\nPages inactive:                          150000.\nPages speculative:                        50000.\n";
+        let total = 16 * 1024 * 1024 * 1024u64;
+        let avail = parse_macos_vm_stat(vm, total);
+        assert_eq!(avail, (100000 + 150000 + 50000) * 16384);
+    }
+
+    #[test]
+    fn cpu_fallback_always_present() {
+        let devices = detect_devices();
+        assert!(devices.iter().any(|d| matches!(d, GpuDevice::Cpu)));
     }
 }
