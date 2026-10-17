@@ -21,10 +21,7 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect) {
 fn draw_messages(f: &mut Frame, app: &App, area: Rect) {
     let items: Vec<ListItem> = if app.chat_messages.is_empty() {
         vec![ListItem::new(Line::from(vec![
-            Span::styled(
-                "Start chatting! ",
-                Style::default().fg(Color::DarkGray),
-            ),
+            Span::styled("Start chatting! ", Style::default().fg(Color::DarkGray)),
             Span::styled(
                 "Press 'i' or Enter to type.",
                 Style::default().fg(Color::DarkGray),
@@ -41,7 +38,10 @@ fn draw_messages(f: &mut Frame, app: &App, area: Rect) {
                 };
 
                 ListItem::new(Line::from(vec![
-                    Span::styled(prefix, Style::default().fg(color).add_modifier(Modifier::BOLD)),
+                    Span::styled(
+                        prefix,
+                        Style::default().fg(color).add_modifier(Modifier::BOLD),
+                    ),
                     Span::raw(&msg.content),
                 ]))
             })
@@ -51,8 +51,7 @@ fn draw_messages(f: &mut Frame, app: &App, area: Rect) {
     let model_name = app.selected_model.as_deref().unwrap_or("no model loaded");
     let title = format!(" Chat - {model_name} ");
 
-    let messages = List::new(items)
-        .block(Block::default().borders(Borders::ALL).title(title));
+    let messages = List::new(items).block(Block::default().borders(Borders::ALL).title(title));
 
     f.render_widget(messages, area);
 }
@@ -70,13 +69,11 @@ fn draw_input(f: &mut Frame, app: &App, area: Rect) {
         &app.input_buffer
     };
 
-    let input = Paragraph::new(input_text)
-        .style(input_style)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(" Message (Enter to send, Esc to cancel) "),
-        );
+    let input = Paragraph::new(input_text).style(input_style).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(" Message (Enter to send, Esc to cancel) "),
+    );
 
     f.render_widget(input, area);
 

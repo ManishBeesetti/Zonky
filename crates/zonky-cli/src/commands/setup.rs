@@ -7,10 +7,7 @@ pub fn run(install: bool) {
     let status = gpu::setup::check_setup();
 
     println!();
-    println!(
-        "{} Zonky GPU Setup",
-        style("[SETUP]").bold()
-    );
+    println!("{} Zonky GPU Setup", style("[SETUP]").bold());
     println!(
         "   GPU: {} ({})",
         style(&status.gpu_name).bold().cyan(),
@@ -19,11 +16,7 @@ pub fn run(install: bool) {
     println!();
 
     if status.deps.is_empty() {
-        println!(
-            "  {} {}",
-            style("[OK]").green().bold(),
-            status.summary
-        );
+        println!("  {} {}", style("[OK]").green().bold(), status.summary);
         println!();
         return;
     }
@@ -70,9 +63,7 @@ pub fn run(install: bool) {
             .unwrap_or(false)
         {
             println!("\n  {} Rebooting...\n", style("[->]").cyan().bold());
-            let _ = std::process::Command::new("sudo")
-                .arg("reboot")
-                .status();
+            let _ = std::process::Command::new("sudo").arg("reboot").status();
         } else {
             println!("\n  Please reboot or log out and back in when convenient.");
             println!("  Then run {} to verify.\n", style("zonky setup").cyan());
@@ -84,14 +75,17 @@ pub fn run(install: bool) {
         println!(
             "  {} {}",
             style("[OK]").green().bold(),
-            style("All dependencies satisfied. GPU compute is ready!").green().bold()
+            style("All dependencies satisfied. GPU compute is ready!")
+                .green()
+                .bold()
         );
         println!();
         return;
     }
 
     // Show what's missing
-    let missing: Vec<&gpu::setup::Dependency> = status.deps.iter().filter(|d| !d.installed).collect();
+    let missing: Vec<&gpu::setup::Dependency> =
+        status.deps.iter().filter(|d| !d.installed).collect();
     println!(
         "  {} {} missing:",
         style("[WARN]").yellow().bold(),
@@ -120,18 +114,12 @@ pub fn run(install: bool) {
                         }
                         println!();
                     }
-                    println!(
-                        "  {} Installation complete!",
-                        style("[OK]").green().bold()
-                    );
+                    println!("  {} Installation complete!", style("[OK]").green().bold());
 
                     // Re-check
                     let recheck = gpu::setup::check_setup();
                     if recheck.compute_ready {
-                        println!(
-                            "  {} GPU compute is ready.\n",
-                            style("[OK]").green().bold()
-                        );
+                        println!("  {} GPU compute is ready.\n", style("[OK]").green().bold());
                     } else if recheck.needs_reboot {
                         println!(
                             "\n  {} {}",
@@ -147,17 +135,14 @@ pub fn run(install: bool) {
                             .unwrap_or(false)
                         {
                             println!("\n  {} Rebooting...\n", style("[->]").cyan().bold());
-                            let _ = std::process::Command::new("sudo")
-                                .arg("reboot")
-                                .status();
+                            let _ = std::process::Command::new("sudo").arg("reboot").status();
                         } else {
                             println!("\n  Please reboot or log out and back in when convenient.");
                             println!("  Then run {} to verify.\n", style("zonky setup").cyan());
                         }
                     } else {
-                        let still_missing: Vec<_> = recheck.deps.iter()
-                            .filter(|d| !d.installed)
-                            .collect();
+                        let still_missing: Vec<_> =
+                            recheck.deps.iter().filter(|d| !d.installed).collect();
                         if !still_missing.is_empty() {
                             println!(
                                 "\n  {} Some dependencies still need attention:",

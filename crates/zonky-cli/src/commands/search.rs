@@ -15,7 +15,11 @@ pub async fn run(config: &ZonkyConfig, query: &str, limit: usize) -> anyhow::Res
     let models = hub.search_models(query, limit).await?;
 
     if models.is_empty() {
-        println!("{} No models found for \"{}\"", style("[INFO]").blue(), query);
+        println!(
+            "{} No models found for \"{}\"",
+            style("[INFO]").blue(),
+            query
+        );
         return Ok(());
     }
 

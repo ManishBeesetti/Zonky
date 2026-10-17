@@ -41,7 +41,11 @@ pub fn run() {
                 vram_free,
                 is_apu,
             } => {
-                let apu_tag = if *is_apu { " [APU - shared memory]" } else { "" };
+                let apu_tag = if *is_apu {
+                    " [APU - shared memory]"
+                } else {
+                    ""
+                };
                 println!(
                     "  {} ROCm:{} - {}{}",
                     style(format!("[{i}]")).dim(),
@@ -66,16 +70,19 @@ pub fn run() {
                 // Check compute readiness
                 let has_kfd = std::path::Path::new("/dev/kfd").exists();
                 if has_kfd {
-                    println!("      Compute: {} (kernel driver active)", style("ready").green());
+                    println!(
+                        "      Compute: {} (kernel driver active)",
+                        style("ready").green()
+                    );
                 } else {
-                    println!("      Compute: {} (run `zonky setup` to fix)", style("not available").red());
+                    println!(
+                        "      Compute: {} (run `zonky setup` to fix)",
+                        style("not available").red()
+                    );
                 }
             }
             gpu::GpuDevice::Metal { unified_memory } => {
-                println!(
-                    "  {} Metal - Apple Silicon",
-                    style(format!("[{i}]")).dim(),
-                );
+                println!("  {} Metal - Apple Silicon", style(format!("[{i}]")).dim(),);
                 println!(
                     "      Unified Memory: {}",
                     bytesize::ByteSize(*unified_memory)

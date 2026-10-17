@@ -70,6 +70,7 @@ pub async fn run(config: &ZonkyConfig, model_id: &str) -> anyhow::Result<()> {
             frequency_penalty: 0.0,
             presence_penalty: 0.0,
             seed: None,
+            cancel_token: None,
         };
 
         print!("\n{} ", style("Assistant:").blue().bold());

@@ -8,12 +8,19 @@ pub async fn run(config: &ZonkyConfig, model_id: &str) -> anyhow::Result<()> {
 
     // Check if it's a local model first
     let local_models = hub.list_local_models()?;
-    if let Some(local) = local_models.iter().find(|m| m.id == model_id || m.repo_id == model_id) {
+    if let Some(local) = local_models
+        .iter()
+        .find(|m| m.id == model_id || m.repo_id == model_id)
+    {
         println!("\n{} Local model info:\n", style("[INFO]").bold());
         println!("  {} {}", style("ID:").bold(), local.id);
         println!("  {} {}", style("Repo:").bold(), local.repo_id);
         println!("  {} {}", style("File:").bold(), local.filename);
-        println!("  {} {}", style("Size:").bold(), bytesize::ByteSize(local.file_size));
+        println!(
+            "  {} {}",
+            style("Size:").bold(),
+            bytesize::ByteSize(local.file_size)
+        );
         println!("  {} {}", style("Path:").bold(), local.path.display());
         if let Some(ref q) = local.quantization {
             println!("  {} {}", style("Quantization:").bold(), q);
