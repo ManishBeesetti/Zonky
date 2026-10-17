@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use serde::Serialize;
@@ -7,6 +9,9 @@ use zonky_core::gpu;
 use zonky_core::model::ModelManager;
 use zonky_core::types::*;
 use zonky_core::{HubClient, ZonkyConfig};
+
+/// Tracks active downloads and their cancellation tokens
+pub type DownloadRegistry = Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>;
 
 /// Handle for the background API server
 pub struct ServerHandle {
@@ -91,6 +96,12 @@ pub struct PullProgress {
 pub struct GgufFileInfo {
     pub filename: String,
     pub size: Option<u64>,
+    pub quantization: Option<String>,
+    pub estimated_vram_bytes: u64,
+    pub fit_level: String,
+    pub recommended: bool,
+    pub recommended_backend: String,
+    pub reason: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -98,6 +109,7 @@ pub struct ChatResponse {
     pub content: String,
     pub model: String,
     pub tokens_used: u32,
+    pub telemetry: Option<TelemetryRecord>,
 }
 
 fn build_embedded_server_state(
@@ -141,39 +153,13 @@ pub fn get_system_info() -> SystemInfoResponse {
         })
         .collect();
 
-    // Read from /proc/meminfo
-    let (total, available) = read_meminfo();
+    let (total, available) = gpu::system_memory_bytes();
 
     SystemInfoResponse {
         devices,
         total_memory: total,
         available_memory: available,
     }
-}
-
-fn read_meminfo() -> (u64, u64) {
-    let content = std::fs::read_to_string("/proc/meminfo").unwrap_or_default();
-    let mut total = 0u64;
-    let mut available = 0u64;
-    for line in content.lines() {
-        if line.starts_with("MemTotal:") {
-            total = line
-                .split_whitespace()
-                .nth(1)
-                .and_then(|v| v.parse::<u64>().ok())
-                .unwrap_or(0)
-                * 1024;
-        }
-        if line.starts_with("MemAvailable:") {
-            available = line
-                .split_whitespace()
-                .nth(1)
-                .and_then(|v| v.parse::<u64>().ok())
-                .unwrap_or(0)
-                * 1024;
-        }
-    }
-    (total, available)
 }
 
 #[tauri::command]
@@ -198,9 +184,45 @@ pub fn get_setup_status() -> SetupStatusResponse {
 }
 
 #[tauri::command]
-pub fn get_config() -> Result<serde_json::Value, String> {
-    let config = ZonkyConfig::load().unwrap_or_default();
+pub async fn get_config(
+    manager: State<'_, Arc<ModelManager>>,
+) -> Result<serde_json::Value, String> {
+    let config = manager.get_config().await;
     serde_json::to_value(&config).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn save_config(
+    config: ZonkyConfig,
+    manager: State<'_, Arc<ModelManager>>,
+) -> Result<serde_json::Value, String> {
+    manager
+        .update_config(config.clone())
+        .await
+        .map_err(|e| e.to_string())?;
+    serde_json::to_value(&config).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn reset_config(
+    manager: State<'_, Arc<ModelManager>>,
+) -> Result<serde_json::Value, String> {
+    let defaults = ZonkyConfig::default();
+    manager
+        .update_config(defaults.clone())
+        .await
+        .map_err(|e| e.to_string())?;
+    serde_json::to_value(&defaults).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn clear_model_cache(manager: State<'_, Arc<ModelManager>>) -> Result<usize, String> {
+    // Unload any loaded models first
+    let loaded = manager.list_loaded_models().await;
+    for model in loaded {
+        let _ = manager.unload_model(&model.id).await;
+    }
+    manager.hub().clear_cache().map_err(|e| e.to_string())
 }
 
 // --- Model Hub ---
@@ -246,19 +268,37 @@ pub fn list_local_models(
 }
 
 #[tauri::command]
-pub async fn list_gguf_files(repo_id: String) -> Result<Vec<GgufFileInfo>, String> {
+pub async fn list_gguf_files(
+    repo_id: String,
+    manager: State<'_, Arc<ModelManager>>,
+) -> Result<Vec<GgufFileInfo>, String> {
     let hub = get_hub_client()?;
     let files = hub
         .list_gguf_files(&repo_id)
         .await
         .map_err(|e| e.to_string())?;
-    Ok(files
+    let recs = manager.recommend_files(&files);
+    Ok(recs
         .into_iter()
-        .map(|f| GgufFileInfo {
-            filename: f.filename,
-            size: f.size,
+        .map(|r| GgufFileInfo {
+            filename: r.filename,
+            size: r.size,
+            quantization: r.quantization,
+            estimated_vram_bytes: r.estimated_vram_bytes,
+            fit_level: r.fit_level,
+            recommended: r.recommended,
+            recommended_backend: r.recommended_backend,
+            reason: r.reason,
         })
         .collect())
+}
+
+#[tauri::command]
+pub fn recommend_model_files(
+    files: Vec<HubSibling>,
+    manager: State<'_, Arc<ModelManager>>,
+) -> Vec<FileRecommendation> {
+    manager.recommend_files(&files)
 }
 
 #[tauri::command]
@@ -266,30 +306,57 @@ pub async fn pull_model(
     repo_id: String,
     filename: String,
     app: tauri::AppHandle,
+    downloads: State<'_, DownloadRegistry>,
 ) -> Result<String, String> {
     let hub = get_hub_client()?;
     let dl_id = format!("{repo_id}/{filename}");
     let dl_id_clone = dl_id.clone();
     let app_clone = app.clone();
 
-    hub.download_model(&repo_id, &filename, move |progress| {
-        let _ = app_clone.emit(
-            "download-progress",
-            serde_json::json!({
-                "id": &dl_id_clone,
-                "downloaded": progress.downloaded,
-                "total": progress.total,
-                "speed": progress.speed_bytes_per_sec,
-            }),
-        );
-    })
-    .await
-    .map_err(|e| e.to_string())?;
+    let cancel_token = Arc::new(AtomicBool::new(false));
+    downloads
+        .lock()
+        .await
+        .insert(dl_id.clone(), cancel_token.clone());
+
+    let result = hub
+        .download_model_cancellable(&repo_id, &filename, Some(cancel_token), move |progress| {
+            let _ = app_clone.emit(
+                "download-progress",
+                serde_json::json!({
+                    "id": &dl_id_clone,
+                    "downloaded": progress.downloaded,
+                    "total": progress.total,
+                    "speed": progress.speed_bytes_per_sec,
+                }),
+            );
+        })
+        .await;
+
+    downloads.lock().await.remove(&dl_id);
+
+    result.map_err(|e| e.to_string())?;
 
     // Also try to download tokenizer
     let _ = hub.download_tokenizer(&repo_id).await;
 
     Ok(format!("Downloaded {repo_id}/{filename}"))
+}
+
+#[tauri::command]
+pub async fn cancel_download(
+    id: String,
+    downloads: State<'_, DownloadRegistry>,
+) -> Result<String, String> {
+    let token_opt = downloads.lock().await.remove(&id);
+    if let Some(token) = token_opt {
+        token.store(true, Ordering::Relaxed);
+    }
+    if let Ok(hub) = get_hub_client() {
+        let _ = zonky_core::hub::cache::ModelCache::new(hub.cache_dir().to_path_buf())
+            .and_then(|c| c.cleanup_partial_files());
+    }
+    Ok(format!("Cancelled download {id}"))
 }
 
 #[tauri::command]
@@ -306,8 +373,9 @@ pub async fn load_model(
     model_id: String,
     manager: State<'_, Arc<ModelManager>>,
 ) -> Result<String, String> {
+    let cfg = manager.get_config().await;
     manager
-        .load_model(&model_id, BackendChoice::Auto, DeviceChoice::Auto)
+        .load_model(&model_id, cfg.default_backend, cfg.default_device)
         .await
         .map_err(|e| e.to_string())?;
     Ok(format!("Model '{model_id}' loaded successfully"))
@@ -349,6 +417,24 @@ pub struct LoadedModelInfo {
     pub loaded: bool,
 }
 
+#[tauri::command]
+pub async fn cancel_generation(manager: State<'_, Arc<ModelManager>>) -> Result<usize, String> {
+    Ok(manager.cancel_generation().await)
+}
+
+#[tauri::command]
+pub async fn get_telemetry(
+    manager: State<'_, Arc<ModelManager>>,
+) -> Result<TelemetrySummary, String> {
+    Ok(manager.get_telemetry().await)
+}
+
+#[tauri::command]
+pub async fn clear_telemetry(manager: State<'_, Arc<ModelManager>>) -> Result<String, String> {
+    manager.clear_telemetry().await;
+    Ok("Telemetry cleared".to_string())
+}
+
 // --- Server Control ---
 
 #[derive(Debug, Serialize)]
@@ -374,7 +460,7 @@ pub async fn start_server(
         });
     }
 
-    let config = ZonkyConfig::load().unwrap_or_default();
+    let config = manager.get_config().await;
     let host = config.server.host.clone();
     let port = config.server.port;
     let bind_addr = format!("{host}:{port}");
@@ -393,7 +479,7 @@ pub async fn start_server(
 
     handle.abort_handle = Some(task);
     handle.running = true;
-    handle.host = "127.0.0.1".to_string();
+    handle.host = host;
     handle.port = port;
 
     tracing::info!(address = %bind_addr, "API server started from UI");
@@ -450,39 +536,88 @@ pub async fn get_server_status(
 pub async fn chat_complete(
     model: String,
     messages: Vec<Message>,
+    temperature: Option<f64>,
+    max_tokens: Option<u32>,
+    top_p: Option<f64>,
+    repetition_penalty: Option<f64>,
+    stream: Option<bool>,
+    app: tauri::AppHandle,
     manager: State<'_, Arc<ModelManager>>,
 ) -> Result<ChatResponse, String> {
+    let use_stream = stream.unwrap_or(false);
     let request = GenerationRequest {
         model: model.clone(),
         messages,
-        temperature: 0.7,
-        top_p: 1.0,
+        temperature: temperature.unwrap_or(0.7),
+        top_p: top_p.unwrap_or(1.0),
         top_k: None,
-        max_tokens: 2048,
-        stream: false,
-        repetition_penalty: 1.1,
+        max_tokens: max_tokens.unwrap_or(2048),
+        stream: use_stream,
+        repetition_penalty: repetition_penalty.unwrap_or(1.1),
         stop: None,
         frequency_penalty: 0.0,
         presence_penalty: 0.0,
         seed: None,
+        cancel_token: None,
     };
 
-    let response = manager
-        .generate(&model, &request)
-        .await
-        .map_err(|e| e.to_string())?;
+    if use_stream {
+        let mut rx = manager
+            .generate_stream(&model, &request)
+            .await
+            .map_err(|e| e.to_string())?;
 
-    let content = response
-        .choices
-        .first()
-        .map(|c| c.message.content.clone())
-        .unwrap_or_default();
+        let mut content = String::new();
+        let mut tokens_used: u32 = 0;
 
-    let tokens_used = response.usage.total_tokens;
+        while let Some(chunk_res) = rx.recv().await {
+            match chunk_res {
+                Ok(chunk) => {
+                    let delta = chunk.delta_text().to_string();
+                    if !delta.is_empty() {
+                        content.push_str(&delta);
+                        tokens_used += 1;
+                    }
+                    let _ = app.emit(
+                        "chat-stream-chunk",
+                        serde_json::json!({
+                            "model": &model,
+                            "delta": delta,
+                            "finish_reason": chunk.finish_reason(),
+                        }),
+                    );
+                }
+                Err(e) => return Err(e.to_string()),
+            }
+        }
 
-    Ok(ChatResponse {
-        content,
-        model: response.model,
-        tokens_used,
-    })
+        let telemetry = manager.get_telemetry().await.recent.into_iter().next();
+
+        Ok(ChatResponse {
+            content,
+            model,
+            tokens_used,
+            telemetry,
+        })
+    } else {
+        let response = manager
+            .generate(&model, &request)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let content = response
+            .choices
+            .first()
+            .map(|c| c.message.content.clone())
+            .unwrap_or_default();
+
+        let tokens_used = response.usage.total_tokens;
+
+        Ok(ChatResponse {
+            content,
+            model: response.model,
+            tokens_used,
+            telemetry: response.telemetry,
+        })
+    }
 }

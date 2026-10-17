@@ -1,5 +1,6 @@
 mod commands;
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use tauri::Manager;
@@ -8,14 +9,13 @@ use tracing_subscriber::EnvFilter;
 use zonky_core::model::ModelManager;
 use zonky_core::ZonkyConfig;
 
-use commands::ServerHandle;
+use commands::{DownloadRegistry, ServerHandle};
 
 #[cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(
-            EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| EnvFilter::new("zonky=info")),
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("zonky=info")),
         )
         .with_target(false)
         .init();
@@ -28,14 +28,22 @@ fn main() {
             commands::search_models,
             commands::list_local_models,
             commands::list_gguf_files,
+            commands::recommend_model_files,
             commands::pull_model,
+            commands::cancel_download,
             commands::delete_model,
             commands::load_model,
             commands::unload_model,
             commands::list_loaded_models,
             commands::chat_complete,
+            commands::cancel_generation,
+            commands::get_telemetry,
+            commands::clear_telemetry,
             commands::get_setup_status,
             commands::get_config,
+            commands::save_config,
+            commands::reset_config,
+            commands::clear_model_cache,
             commands::start_server,
             commands::stop_server,
             commands::get_server_status,
@@ -44,10 +52,11 @@ fn main() {
             tracing::info!("Zonky desktop app starting");
 
             let config = ZonkyConfig::load().unwrap_or_default();
-            let manager = ModelManager::new(config)
-                .expect("Failed to initialize ModelManager");
+            let manager = ModelManager::new(config).expect("Failed to initialize ModelManager");
             app.manage(Arc::new(manager));
             app.manage(Arc::new(Mutex::new(ServerHandle::new())));
+            let downloads: DownloadRegistry = Arc::new(Mutex::new(HashMap::new()));
+            app.manage(downloads);
 
             Ok(())
         })
