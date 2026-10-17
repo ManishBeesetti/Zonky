@@ -1,7 +1,39 @@
 // Shared download state — reactive Svelte 5 runes at module level
 
+const STORAGE_KEY = "zonky_downloads_v1";
+
+function loadPersistedDownloads() {
+  if (typeof window === "undefined" || !window.localStorage) return [];
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map((d) => {
+      if (d.status === "downloading" || d.status === "queued") {
+        return {
+          ...d,
+          status: "error",
+          speed: 0,
+          error: "Download interrupted — click Retry to resume",
+        };
+      }
+      return d;
+    });
+  } catch (_) {
+    return [];
+  }
+}
+
+function persistDownloads(list) {
+  if (typeof window === "undefined" || !window.localStorage) return;
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+  } catch (_) {}
+}
+
 /** @type {{ id: string, repoId: string, filename: string, size: number|null, downloaded: number, speed: number, status: 'queued'|'downloading'|'done'|'error', error?: string, startedAt: number }[]} */
-let downloads = $state([]);
+let downloads = $state(loadPersistedDownloads());
 let listenerActive = false;
 
 export function getDownloads() {
@@ -30,6 +62,7 @@ async function ensureListener() {
           status: "downloading",
         };
       });
+      persistDownloads(downloads);
     });
   } catch (_) {
     // Not in Tauri environment (tests, etc.)
@@ -38,9 +71,11 @@ async function ensureListener() {
 
 export function addDownload(repoId, filename, size) {
   const id = `${repoId}/${filename}`;
-  // Don't duplicate
+  // Don't duplicate active downloads
   if (downloads.find((d) => d.id === id && (d.status === "queued" || d.status === "downloading")))
     return;
+  // Remove previous failed/done entry with same id if re-queued
+  const filtered = downloads.filter((d) => d.id !== id);
   downloads = [
     {
       id,
@@ -52,8 +87,9 @@ export function addDownload(repoId, filename, size) {
       status: "queued",
       startedAt: Date.now(),
     },
-    ...downloads,
+    ...filtered,
   ];
+  persistDownloads(downloads);
   ensureListener();
   startDownload(id);
 }
@@ -63,8 +99,9 @@ async function startDownload(id) {
   if (!dl) return;
 
   downloads = downloads.map((d) =>
-    d.id === id ? { ...d, status: "downloading" } : d
+    d.id === id ? { ...d, status: "downloading", error: undefined } : d
   );
+  persistDownloads(downloads);
 
   try {
     const { invoke } = await import("@tauri-apps/api/core");
@@ -72,17 +109,48 @@ async function startDownload(id) {
     downloads = downloads.map((d) =>
       d.id === id ? { ...d, status: "done", downloaded: d.size || d.downloaded, speed: 0 } : d
     );
+    persistDownloads(downloads);
   } catch (e) {
     downloads = downloads.map((d) =>
       d.id === id ? { ...d, status: "error", error: String(e), speed: 0 } : d
     );
+    persistDownloads(downloads);
   }
+}
+
+export async function cancelDownload(id) {
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("cancel_download", { id });
+  } catch (_) {}
+  downloads = downloads.map((d) =>
+    d.id === id
+      ? { ...d, status: "error", error: "Cancelled by user", speed: 0 }
+      : d
+  );
+  persistDownloads(downloads);
+}
+
+export function retryDownload(id) {
+  const dl = downloads.find((d) => d.id === id);
+  if (!dl) return;
+  downloads = downloads.map((d) =>
+    d.id === id
+      ? { ...d, status: "queued", downloaded: 0, speed: 0, error: undefined, startedAt: Date.now() }
+      : d
+  );
+  persistDownloads(downloads);
+  ensureListener();
+  startDownload(id);
 }
 
 export function removeDownload(id) {
   downloads = downloads.filter((d) => d.id !== id);
+  persistDownloads(downloads);
 }
 
 export function clearCompleted() {
   downloads = downloads.filter((d) => d.status !== "done" && d.status !== "error");
+  persistDownloads(downloads);
 }
+

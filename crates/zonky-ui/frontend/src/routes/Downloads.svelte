@@ -1,5 +1,11 @@
 <script>
-  import { getDownloads, removeDownload, clearCompleted } from "../stores/downloads.svelte.js";
+  import {
+    getDownloads,
+    removeDownload,
+    clearCompleted,
+    cancelDownload,
+    retryDownload,
+  } from "../stores/downloads.svelte.js";
 
   let downloads = $derived(getDownloads());
   let activeDownloads = $derived(downloads.filter((d) => d.status === "downloading" || d.status === "queued"));
@@ -77,9 +83,18 @@
                 <div class="flex-1 min-w-0">
                   <div class="flex items-center justify-between mb-1">
                     <h3 class="text-sm font-headline font-bold text-on-surface truncate">{dl.filename}</h3>
-                    <span class="text-[10px] font-mono text-tertiary uppercase ml-2 flex-shrink-0">
-                      {dl.status === "downloading" ? `${progressPercent(dl)}%` : "Queued"}
-                    </span>
+                    <div class="flex items-center gap-3 ml-2 flex-shrink-0">
+                      <span class="text-[10px] font-mono text-tertiary uppercase">
+                        {dl.status === "downloading" ? `${progressPercent(dl)}%` : "Queued"}
+                      </span>
+                      <button
+                        class="px-2.5 py-1 rounded-lg bg-error/10 text-error text-[10px] font-bold uppercase tracking-widest hover:bg-error/20 transition-colors"
+                        onclick={() => cancelDownload(dl.id)}
+                        title="Cancel download"
+                      >
+                        Cancel
+                      </button>
+                    </div>
                   </div>
                   <p class="text-xs text-on-surface-variant truncate">{dl.repoId}</p>
                   <div class="flex items-center gap-4 mt-2">
@@ -159,13 +174,22 @@
                   <p class="text-xs text-on-surface-variant truncate">{dl.repoId}</p>
                   <p class="text-xs text-error mt-1 truncate">{dl.error}</p>
                 </div>
-                <button
-                  class="p-2 rounded-lg text-on-surface-variant hover:text-error hover:bg-error/10 transition-colors flex-shrink-0"
-                  onclick={() => removeDownload(dl.id)}
-                  title="Dismiss"
-                >
-                  <span class="material-symbols-outlined text-sm">close</span>
-                </button>
+                <div class="flex items-center gap-2 flex-shrink-0">
+                  <button
+                    class="px-3 py-1.5 rounded-lg bg-primary/10 text-primary text-xs font-bold uppercase tracking-widest hover:bg-primary/20 transition-colors"
+                    onclick={() => retryDownload(dl.id)}
+                    title="Retry download"
+                  >
+                    Retry
+                  </button>
+                  <button
+                    class="p-2 rounded-lg text-on-surface-variant hover:text-error hover:bg-error/10 transition-colors"
+                    onclick={() => removeDownload(dl.id)}
+                    title="Dismiss"
+                  >
+                    <span class="material-symbols-outlined text-sm">close</span>
+                  </button>
+                </div>
               </div>
             </div>
           {/each}
@@ -187,3 +211,4 @@
     {/if}
   </div>
 </div>
+

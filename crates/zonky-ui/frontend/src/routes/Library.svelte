@@ -20,6 +20,40 @@
 
   let loadingModelId = $state(null);
   let loadError = $state(null);
+  let showFilter = $state(false);
+  let filterQuery = $state("");
+  let backendFilter = $state("all");
+  let sortBy = $state("name"); // "name" | "size" | "repo"
+
+  let filteredModels = $derived.by(() => {
+    const query = filterQuery.trim().toLowerCase();
+    let list = localModels.filter((m) => {
+      const matchesQuery =
+        !query ||
+        (m.id && m.id.toLowerCase().includes(query)) ||
+        (m.repo_id && m.repo_id.toLowerCase().includes(query)) ||
+        (m.path && m.path.toLowerCase().includes(query));
+      const matchesBackend =
+        backendFilter === "all" || m.compatible_backends?.includes(backendFilter);
+      return matchesQuery && matchesBackend;
+    });
+
+    return [...list].sort((a, b) => {
+      if (sortBy === "size") {
+        return (b.size || 0) - (a.size || 0);
+      }
+      if (sortBy === "repo") {
+        return (a.repo_id || "").localeCompare(b.repo_id || "");
+      }
+      return (a.id || "").localeCompare(b.id || "");
+    });
+  });
+
+  function cycleSort() {
+    if (sortBy === "name") sortBy = "size";
+    else if (sortBy === "size") sortBy = "repo";
+    else sortBy = "name";
+  }
 
   async function loadModel(modelId) {
     loadingModelId = modelId;
@@ -29,7 +63,7 @@
       await invoke("load_model", { modelId });
     } catch (e) {
       console.error("Load failed:", e);
-      loadError = { modelId, message: String(e) };
+      loadError = { modelId, title: "Failed to load model", message: String(e) };
     }
     loadingModelId = null;
   }
@@ -39,12 +73,16 @@
   }
 
   async function deleteModel(modelId) {
+    loadError = null;
     try {
       const { invoke } = await import("@tauri-apps/api/core");
+      // Unload first if currently loaded in VRAM
+      await invoke("unload_model", { modelId }).catch(() => {});
       await invoke("delete_model", { modelId });
       await loadLocalModels();
     } catch (e) {
       console.error("Delete failed:", e);
+      loadError = { modelId, title: "Failed to delete model", message: String(e) };
     }
   }
 
@@ -63,7 +101,7 @@
 
   function extractFilename(path) {
     if (!path) return "-";
-    return path.split("/").pop();
+    return path.split(/[\\/]/).pop();
   }
 </script>
 
@@ -79,7 +117,7 @@
       </p>
     </div>
 
-    <!-- Load Error Banner -->
+    <!-- Load / Delete Error Banner -->
     {#if loadError}
       <div class="mb-8 bg-error/5 border border-error/20 rounded-xl p-5">
         <div class="flex items-start gap-4">
@@ -87,7 +125,7 @@
             <span class="material-symbols-outlined text-error">error</span>
           </div>
           <div class="flex-1 min-w-0">
-            <h3 class="font-headline font-bold text-error text-sm mb-1">Failed to load model</h3>
+            <h3 class="font-headline font-bold text-error text-sm mb-1">{loadError.title || "Failed to load model"}</h3>
             <p class="text-sm text-on-surface-variant leading-relaxed">{loadError.message}</p>
           </div>
           <button
@@ -119,19 +157,43 @@
           </div>
           <div class="flex gap-2">
             <button
-              class="bg-surface-container-high px-4 py-2 rounded-lg text-xs font-headline flex items-center gap-2 hover:bg-surface-container-highest transition-colors text-on-surface-variant"
+              class="bg-surface-container-high px-4 py-2 rounded-lg text-xs font-headline flex items-center gap-2 hover:bg-surface-container-highest transition-colors {showFilter ? 'text-primary border border-primary/30' : 'text-on-surface-variant'}"
+              onclick={() => (showFilter = !showFilter)}
             >
               <span class="material-symbols-outlined text-sm">filter_list</span>
               Filter
             </button>
             <button
               class="bg-surface-container-high px-4 py-2 rounded-lg text-xs font-headline flex items-center gap-2 hover:bg-surface-container-highest transition-colors text-on-surface-variant"
+              onclick={cycleSort}
+              title="Cycle sort order"
             >
               <span class="material-symbols-outlined text-sm">sort</span>
-              Sort
+              Sort ({sortBy})
             </button>
           </div>
         </div>
+
+        {#if showFilter}
+          <div class="mb-6 p-4 bg-surface-container-lowest rounded-xl flex flex-wrap items-center gap-4 border border-outline-variant/10">
+            <input
+              type="text"
+              placeholder="Filter models by name or repo..."
+              bind:value={filterQuery}
+              class="flex-1 min-w-[200px] bg-surface-container-low rounded-lg px-3 py-2 text-xs font-mono text-on-surface border border-outline-variant/20 focus:border-primary focus:outline-none"
+            />
+            <div class="flex items-center gap-1.5">
+              {#each ["all", "llamacpp", "candle", "rocm", "cuda"] as b}
+                <button
+                  class="px-2.5 py-1 rounded text-[10px] font-mono uppercase transition-colors {backendFilter === b ? 'bg-primary text-on-primary font-bold' : 'bg-surface-container-high text-on-surface-variant hover:text-on-surface'}"
+                  onclick={() => (backendFilter = b)}
+                >
+                  {b}
+                </button>
+              {/each}
+            </div>
+          </div>
+        {/if}
 
         {#if localModels.length === 0}
           <!-- Empty State -->
@@ -149,6 +211,10 @@
               GGUF quantized models are recommended for best performance.
             </p>
           </div>
+        {:else if filteredModels.length === 0}
+          <div class="bg-surface-container-lowest rounded-xl p-8 text-center text-sm text-on-surface-variant">
+            No models match the current filter.
+          </div>
         {:else}
           <div class="flex flex-col gap-1">
             <!-- Table Header -->
@@ -163,7 +229,7 @@
             </div>
 
             <!-- Model Rows -->
-            {#each localModels as model}
+            {#each filteredModels as model}
               <div
                 class="grid grid-cols-12 items-center px-6 py-4 bg-surface-container-low hover:bg-surface-container transition-all group rounded-lg mb-2"
               >
@@ -173,8 +239,8 @@
                   >
                     {model.repo_id}
                   </span>
-                  <span class="text-[10px] font-mono text-on-surface-variant">
-                    {model.path}
+                  <span class="text-[10px] font-mono text-on-surface-variant" title={model.path}>
+                    {extractFilename(model.path)}
                   </span>
                 </div>
                 <div class="col-span-3 flex flex-wrap gap-1.5">
