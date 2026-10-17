@@ -49,6 +49,7 @@ pub async fn run(
         frequency_penalty: 0.0,
         presence_penalty: 0.0,
         seed: None,
+        cancel_token: None,
     };
 
     let response = manager.generate(model_id, &request).await?;

@@ -27,15 +27,28 @@ fn draw_local_models(f: &mut Frame, app: &App, area: Rect) {
     } else {
         app.local_models
             .iter()
-            .map(|m| {
-                let style = if app.selected_model.as_deref() == Some(m) {
+            .enumerate()
+            .map(|(idx, m)| {
+                let is_selected =
+                    app.selected_model.as_deref() == Some(m) || idx == app.selected_local_index;
+                let is_loaded = app.loaded_models.contains(m);
+                let label = if is_loaded {
+                    format!("● {m} [loaded]")
+                } else if is_selected {
+                    format!("> {m}")
+                } else {
+                    format!("  {m}")
+                };
+                let style = if is_selected {
                     Style::default()
                         .fg(Color::Cyan)
                         .add_modifier(Modifier::BOLD)
+                } else if is_loaded {
+                    Style::default().fg(Color::Green)
                 } else {
                     Style::default()
                 };
-                ListItem::new(Span::styled(m.as_str(), style))
+                ListItem::new(Span::styled(label, style))
             })
             .collect()
     };
@@ -44,7 +57,7 @@ fn draw_local_models(f: &mut Frame, app: &App, area: Rect) {
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(" Local Models "),
+                .title(" Local Models (↑/↓ select, Enter load, u unload) "),
         )
         .highlight_style(
             Style::default()
@@ -74,13 +87,11 @@ fn draw_search_panel(f: &mut Frame, app: &App, area: Rect) {
         &app.search_query
     };
 
-    let search = Paragraph::new(search_text)
-        .style(search_style)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(" Search HuggingFace "),
-        );
+    let search = Paragraph::new(search_text).style(search_style).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(" Search HuggingFace "),
+    );
 
     f.render_widget(search, chunks[0]);
 

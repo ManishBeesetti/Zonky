@@ -34,7 +34,12 @@ pub async fn run(config: &ZonkyConfig, model_id: &str, file: Option<&str>) -> an
                 .size
                 .map(|s| bytesize::ByteSize(s).to_string())
                 .unwrap_or_else(|| "unknown size".to_string());
-            println!("  {} {} ({})", style(format!("[{i}]")).dim(), f.filename, size_str);
+            println!(
+                "  {} {} ({})",
+                style(format!("[{i}]")).dim(),
+                f.filename,
+                size_str
+            );
         }
 
         println!();
@@ -82,10 +87,7 @@ pub async fn run(config: &ZonkyConfig, model_id: &str, file: Option<&str>) -> an
     pb.finish_with_message("done");
 
     // Also try to download the tokenizer
-    println!(
-        "\n{} Downloading tokenizer...",
-        style("[DL]").cyan()
-    );
+    println!("\n{} Downloading tokenizer...", style("[DL]").cyan());
     match hub.download_tokenizer(model_id).await {
         Ok(_) => println!("{} Tokenizer downloaded", style("[OK]").green()),
         Err(_) => println!(

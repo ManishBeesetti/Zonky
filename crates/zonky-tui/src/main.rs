@@ -54,8 +54,7 @@ async fn run_app(
         if event::poll(std::time::Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {
                 // Ctrl+C or 'q' to quit (when not in input mode)
-                if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c')
-                {
+                if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
                     return Ok(());
                 }
 

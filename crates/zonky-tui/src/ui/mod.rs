@@ -16,7 +16,7 @@ pub fn draw(f: &mut Frame, app: &App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),  // Tab bar
+            Constraint::Length(3), // Tab bar
             Constraint::Min(1),    // Content
             Constraint::Length(3), // Status bar
         ])
@@ -50,11 +50,7 @@ fn draw_tabs(f: &mut Frame, app: &App, area: Rect) {
         .collect();
 
     let tabs = Tabs::new(titles)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(" Zonky "),
-        )
+        .block(Block::default().borders(Borders::ALL).title(" Zonky "))
         .select(app.active_tab.index())
         .highlight_style(
             Style::default()
@@ -133,8 +129,8 @@ fn draw_settings(f: &mut Frame, app: &App, area: Rect) {
         )),
     ];
 
-    let settings = Paragraph::new(text)
-        .block(Block::default().borders(Borders::ALL).title(" Settings "));
+    let settings =
+        Paragraph::new(text).block(Block::default().borders(Borders::ALL).title(" Settings "));
 
     f.render_widget(settings, area);
 }
