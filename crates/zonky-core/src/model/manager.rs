@@ -10,6 +10,7 @@ use crate::error::{Result, ZonkyError};
 use crate::gpu::{self, GpuDevice};
 use crate::hub::HubClient;
 use crate::inference::candle_backend::CandleBackend;
+#[cfg(feature = "llamacpp")]
 use crate::inference::llamacpp_backend::LlamaCppBackend;
 use crate::inference::{InferenceBackend, ModelHandle};
 use crate::types::*;
@@ -43,6 +44,7 @@ impl ModelManager {
 
         // Register both inference backends
         backends.insert("candle".to_string(), Box::new(CandleBackend::new()));
+        #[cfg(feature = "llamacpp")]
         backends.insert("llamacpp".to_string(), Box::new(LlamaCppBackend::new()));
 
         let hub = HubClient::new(config.cache_dir())?;

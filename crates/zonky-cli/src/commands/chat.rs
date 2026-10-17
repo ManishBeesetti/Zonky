@@ -10,7 +10,7 @@ pub async fn run(config: &ZonkyConfig, model_id: &str) -> anyhow::Result<()> {
 
     println!(
         "{} Loading model {}...",
-        style("→").cyan(),
+        style("[->]").cyan(),
         style(model_id).bold()
     );
 
@@ -20,7 +20,7 @@ pub async fn run(config: &ZonkyConfig, model_id: &str) -> anyhow::Result<()> {
 
     println!(
         "\n{} Chat with {} (type 'exit' or Ctrl+C to quit)\n",
-        style("💬").bold(),
+        style("[CHAT]").bold(),
         style(model_id).bold()
     );
 
@@ -48,7 +48,7 @@ pub async fn run(config: &ZonkyConfig, model_id: &str) -> anyhow::Result<()> {
         // Special commands
         if input == "/clear" {
             messages.clear();
-            println!("{} Chat history cleared\n", style("✓").green());
+            println!("{} Chat history cleared\n", style("[OK]").green());
             continue;
         }
 
@@ -86,12 +86,12 @@ pub async fn run(config: &ZonkyConfig, model_id: &str) -> anyhow::Result<()> {
                 }
             }
             Err(e) => {
-                println!("{} Error: {}\n", style("✗").red(), e);
+                println!("{} Error: {}\n", style("[ERR]").red(), e);
             }
         }
     }
 
-    println!("\n{} Goodbye!", style("👋").bold());
+    println!("\n{} Goodbye!", style("[BYE]").bold());
     manager.unload_model(model_id).await?;
     Ok(())
 }

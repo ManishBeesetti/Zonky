@@ -13,7 +13,7 @@ pub async fn run(
 
     println!(
         "{} Loading model {}...",
-        style("→").cyan(),
+        style("[->]").cyan(),
         style(model_id).bold()
     );
 
@@ -31,7 +31,7 @@ pub async fn run(
         input
     };
 
-    println!("\n{} Generating...\n", style("⚡").yellow());
+    println!("\n{} Generating...\n", style("[RUN]").yellow());
 
     let request = GenerationRequest {
         model: model_id.to_string(),

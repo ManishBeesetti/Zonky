@@ -49,7 +49,7 @@ fn draw_messages(f: &mut Frame, app: &App, area: Rect) {
     };
 
     let model_name = app.selected_model.as_deref().unwrap_or("no model loaded");
-    let title = format!(" Chat — {model_name} ");
+    let title = format!(" Chat - {model_name} ");
 
     let messages = List::new(items)
         .block(Block::default().borders(Borders::ALL).title(title));

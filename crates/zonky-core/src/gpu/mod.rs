@@ -1,8 +1,11 @@
 pub mod setup;
 
 use serde::{Deserialize, Serialize};
+#[cfg(target_os = "linux")]
 use std::fs;
+#[cfg(target_os = "linux")]
 use std::path::Path;
+#[cfg(target_os = "linux")]
 use tracing::debug;
 
 /// Detected GPU device information
@@ -32,12 +35,20 @@ impl GpuDevice {
     pub fn device_name(&self) -> String {
         match self {
             GpuDevice::Cuda { name, index, .. } => format!("CUDA:{index} ({name})"),
-            GpuDevice::Rocm { name, index, is_apu, .. } => {
+            GpuDevice::Rocm {
+                name,
+                index,
+                is_apu,
+                ..
+            } => {
                 let suffix = if *is_apu { " [APU]" } else { "" };
                 format!("ROCm:{index} ({name}{suffix})")
             }
             GpuDevice::Metal { unified_memory } => {
-                format!("Metal ({}GB unified)", unified_memory / (1024 * 1024 * 1024))
+                format!(
+                    "Metal ({}GB unified)",
+                    unified_memory / (1024 * 1024 * 1024)
+                )
             }
             GpuDevice::Cpu => "CPU".to_string(),
         }
@@ -97,11 +108,17 @@ pub fn detect_devices() -> Vec<GpuDevice> {
         }
     }
 
+    // Windows: detect display adapters via WMI/CIM
+    #[cfg(target_os = "windows")]
+    {
+        devices.extend(detect_windows_gpus());
+    }
+
     // CUDA via NVML (if compiled with cuda feature, supplements sysfs data)
     #[cfg(feature = "cuda")]
     {
         if let Ok(cuda_devices) = detect_cuda_nvml() {
-            // Replace any sysfs NVIDIA entries with richer NVML data
+            // Replace any previously detected NVIDIA entries with richer NVML data.
             devices.retain(|d| !matches!(d, GpuDevice::Cuda { .. }));
             devices.extend(cuda_devices);
         }
@@ -150,13 +167,25 @@ fn detect_linux_gpus() -> Vec<GpuDevice> {
         match vendor {
             0x10de => {
                 // NVIDIA
-                if let Some(dev) = detect_nvidia_sysfs(&device_path, devices.iter().filter(|d| matches!(d, GpuDevice::Cuda { .. })).count()) {
+                if let Some(dev) = detect_nvidia_sysfs(
+                    &device_path,
+                    devices
+                        .iter()
+                        .filter(|d| matches!(d, GpuDevice::Cuda { .. }))
+                        .count(),
+                ) {
                     devices.push(dev);
                 }
             }
             0x1002 => {
                 // AMD
-                if let Some(dev) = detect_amd_sysfs(&device_path, devices.iter().filter(|d| matches!(d, GpuDevice::Rocm { .. })).count()) {
+                if let Some(dev) = detect_amd_sysfs(
+                    &device_path,
+                    devices
+                        .iter()
+                        .filter(|d| matches!(d, GpuDevice::Rocm { .. }))
+                        .count(),
+                ) {
                     devices.push(dev);
                 }
             }
@@ -175,12 +204,11 @@ fn detect_nvidia_sysfs(device_path: &Path, index: usize) -> Option<GpuDevice> {
     let name = read_sysfs_string(&device_path.join("label"))
         .or_else(|| {
             // Parse PCI device ID and map to a name via lspci-style lookup
-            let pci_slot = read_sysfs_string(&device_path.join("uevent"))
-                .and_then(|s| {
-                    s.lines()
-                        .find(|l| l.starts_with("PCI_SLOT_NAME="))
-                        .map(|l| l.trim_start_matches("PCI_SLOT_NAME=").to_string())
-                });
+            let pci_slot = read_sysfs_string(&device_path.join("uevent")).and_then(|s| {
+                s.lines()
+                    .find(|l| l.starts_with("PCI_SLOT_NAME="))
+                    .map(|l| l.trim_start_matches("PCI_SLOT_NAME=").to_string())
+            });
             pci_slot.and_then(|slot| pci_device_name(&slot))
         })
         .unwrap_or_else(|| "NVIDIA GPU".to_string());
@@ -203,12 +231,11 @@ fn detect_amd_sysfs(device_path: &Path, index: usize) -> Option<GpuDevice> {
     // Get GPU name
     let name = read_sysfs_string(&device_path.join("label"))
         .or_else(|| {
-            let pci_slot = read_sysfs_string(&device_path.join("uevent"))
-                .and_then(|s| {
-                    s.lines()
-                        .find(|l| l.starts_with("PCI_SLOT_NAME="))
-                        .map(|l| l.trim_start_matches("PCI_SLOT_NAME=").to_string())
-                });
+            let pci_slot = read_sysfs_string(&device_path.join("uevent")).and_then(|s| {
+                s.lines()
+                    .find(|l| l.starts_with("PCI_SLOT_NAME="))
+                    .map(|l| l.trim_start_matches("PCI_SLOT_NAME=").to_string())
+            });
             pci_slot.and_then(|slot| pci_device_name(&slot))
         })
         .unwrap_or_else(|| "AMD GPU".to_string());
@@ -225,11 +252,14 @@ fn detect_amd_sysfs(device_path: &Path, index: usize) -> Option<GpuDevice> {
                 s.lines()
                     .find(|l| l.starts_with("MemTotal:"))
                     .and_then(|l| {
-                        l.split_whitespace().nth(1).and_then(|v| v.parse::<u64>().ok())
+                        l.split_whitespace()
+                            .nth(1)
+                            .and_then(|v| v.parse::<u64>().ok())
                     })
             })
-            .unwrap_or(0) * 1024; // meminfo is in kB
-        // APU: VRAM is carved from system memory, typically matches or exceeds 50% of system RAM
+            .unwrap_or(0)
+            * 1024; // meminfo is in kB
+                    // APU: VRAM is carved from system memory, typically matches or exceeds 50% of system RAM
         vram_total > total_system / 2
     };
 
@@ -257,6 +287,215 @@ fn detect_amd_sysfs(device_path: &Path, index: usize) -> Option<GpuDevice> {
     })
 }
 
+// --- Windows detection ---
+
+#[cfg(target_os = "windows")]
+#[derive(Debug, Deserialize)]
+struct WindowsVideoController {
+    #[serde(rename = "Name")]
+    name: Option<String>,
+    #[serde(rename = "AdapterRAM")]
+    adapter_ram: Option<u64>,
+}
+
+#[cfg(target_os = "windows")]
+#[derive(Debug, Deserialize)]
+struct WindowsMemoryInfo {
+    #[serde(rename = "FreePhysicalMemory")]
+    free_physical_memory_kb: Option<u64>,
+    #[serde(rename = "TotalVisibleMemorySize")]
+    total_visible_memory_kb: Option<u64>,
+}
+
+#[cfg(target_os = "windows")]
+fn detect_windows_gpus() -> Vec<GpuDevice> {
+    let mut devices = Vec::new();
+    let output = std::process::Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-Command",
+            "Get-CimInstance Win32_VideoController | Select-Object Name,AdapterRAM | ConvertTo-Json -Compress",
+        ])
+        .output();
+
+    let Ok(output) = output else {
+        return devices;
+    };
+
+    if !output.status.success() {
+        return devices;
+    }
+
+    let json = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if json.is_empty() || json == "null" {
+        return devices;
+    }
+
+    let controllers = parse_windows_video_controllers(&json);
+    let (sys_total, sys_free) = windows_system_memory_bytes();
+
+    let mut cuda_index = 0usize;
+    let mut rocm_index = 0usize;
+
+    for vc in controllers {
+        let name = vc.name.unwrap_or_default().trim().to_string();
+        if name.is_empty() {
+            continue;
+        }
+
+        let lower = name.to_ascii_lowercase();
+        if lower.contains("microsoft basic") {
+            continue;
+        }
+
+        let adapter_ram = vc.adapter_ram.unwrap_or(0);
+
+        if lower.contains("nvidia") {
+            let (vram_total, vram_free) = query_nvidia_memory(cuda_index, adapter_ram);
+            devices.push(GpuDevice::Cuda {
+                index: cuda_index,
+                name,
+                vram_total,
+                vram_free,
+            });
+            cuda_index += 1;
+            continue;
+        }
+
+        if lower.contains("amd")
+            || lower.contains("radeon")
+            || lower.contains("intel")
+            || lower.contains("arc")
+        {
+            let is_apu = lower.contains("integrated")
+                || lower.contains("radeon(tm)")
+                || (adapter_ram > 0 && adapter_ram <= 8 * 1024 * 1024 * 1024);
+
+            let vram_total = if adapter_ram > 0 {
+                adapter_ram
+            } else if is_apu {
+                sys_total
+            } else {
+                0
+            };
+
+            let mut vram_free = if is_apu {
+                sys_free
+            } else if vram_total > 0 {
+                // Rough fallback for dedicated adapters when free VRAM is unavailable.
+                vram_total.saturating_mul(8) / 10
+            } else {
+                0
+            };
+
+            if vram_total > 0 {
+                vram_free = vram_free.min(vram_total);
+            }
+
+            devices.push(GpuDevice::Rocm {
+                index: rocm_index,
+                name,
+                vram_total,
+                vram_free,
+                is_apu,
+            });
+            rocm_index += 1;
+        }
+    }
+
+    devices
+}
+
+#[cfg(target_os = "windows")]
+fn parse_windows_video_controllers(json: &str) -> Vec<WindowsVideoController> {
+    if let Ok(arr) = serde_json::from_str::<Vec<WindowsVideoController>>(json) {
+        return arr;
+    }
+    if let Ok(one) = serde_json::from_str::<WindowsVideoController>(json) {
+        return vec![one];
+    }
+    Vec::new()
+}
+
+#[cfg(target_os = "windows")]
+fn windows_system_memory_bytes() -> (u64, u64) {
+    let output = std::process::Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-Command",
+            "Get-CimInstance Win32_OperatingSystem | Select-Object TotalVisibleMemorySize,FreePhysicalMemory | ConvertTo-Json -Compress",
+        ])
+        .output();
+
+    let Ok(output) = output else {
+        return (0, 0);
+    };
+    if !output.status.success() {
+        return (0, 0);
+    }
+
+    let json = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if json.is_empty() || json == "null" {
+        return (0, 0);
+    }
+
+    let Ok(mem) = serde_json::from_str::<WindowsMemoryInfo>(&json) else {
+        return (0, 0);
+    };
+
+    let total = mem
+        .total_visible_memory_kb
+        .unwrap_or(0)
+        .saturating_mul(1024);
+    let free = mem
+        .free_physical_memory_kb
+        .unwrap_or(0)
+        .saturating_mul(1024);
+    (total, free)
+}
+
+#[cfg(target_os = "windows")]
+fn query_nvidia_memory(index: usize, fallback_total: u64) -> (u64, u64) {
+    let output = std::process::Command::new("nvidia-smi")
+        .args([
+            "--query-gpu=memory.total,memory.free",
+            "--format=csv,noheader,nounits",
+            "-i",
+            &index.to_string(),
+        ])
+        .output();
+
+    let Ok(output) = output else {
+        let total = fallback_total;
+        let free = total.saturating_mul(8) / 10;
+        return (total, free);
+    };
+    if !output.status.success() {
+        let total = fallback_total;
+        let free = total.saturating_mul(8) / 10;
+        return (total, free);
+    }
+
+    let line = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    let parts: Vec<&str> = line.split(',').map(|p| p.trim()).collect();
+    if parts.len() < 2 {
+        let total = fallback_total;
+        let free = total.saturating_mul(8) / 10;
+        return (total, free);
+    }
+
+    let total_mib = parts[0].parse::<u64>().unwrap_or(0);
+    let free_mib = parts[1].parse::<u64>().unwrap_or(0);
+    let total = total_mib.saturating_mul(1024 * 1024);
+    let free = free_mib.saturating_mul(1024 * 1024).min(total);
+    (total, free)
+}
+
 // --- Helper functions ---
 
 #[cfg(target_os = "linux")]
@@ -272,10 +511,15 @@ fn read_sysfs_u64(path: &Path) -> Option<u64> {
     content.trim().parse().ok()
 }
 
+#[cfg(target_os = "linux")]
 fn read_sysfs_string(path: &Path) -> Option<String> {
     let content = fs::read_to_string(path).ok()?;
     let trimmed = content.trim().to_string();
-    if trimmed.is_empty() { None } else { Some(trimmed) }
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
+    }
 }
 
 /// Get GPU name from PCI slot via lspci
@@ -297,6 +541,7 @@ fn pci_device_name(slot: &str) -> Option<String> {
 }
 
 /// Total system memory in bytes (from /proc/meminfo)
+#[cfg(target_os = "linux")]
 fn system_memory_total() -> u64 {
     read_sysfs_string(Path::new("/proc/meminfo"))
         .and_then(|s| {
@@ -304,10 +549,12 @@ fn system_memory_total() -> u64 {
                 .find(|l| l.starts_with("MemTotal:"))
                 .and_then(|l| l.split_whitespace().nth(1)?.parse::<u64>().ok())
         })
-        .unwrap_or(0) * 1024
+        .unwrap_or(0)
+        * 1024
 }
 
 /// Available system memory in bytes
+#[cfg(target_os = "linux")]
 fn system_memory_available() -> u64 {
     read_sysfs_string(Path::new("/proc/meminfo"))
         .and_then(|s| {
@@ -315,7 +562,8 @@ fn system_memory_available() -> u64 {
                 .find(|l| l.starts_with("MemAvailable:"))
                 .and_then(|l| l.split_whitespace().nth(1)?.parse::<u64>().ok())
         })
-        .unwrap_or(0) * 1024
+        .unwrap_or(0)
+        * 1024
 }
 
 /// Detect NVIDIA GPUs via NVML (richer data than sysfs)

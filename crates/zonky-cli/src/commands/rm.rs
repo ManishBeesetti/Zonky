@@ -10,7 +10,7 @@ pub fn run(config: &ZonkyConfig, model_id: &str) -> anyhow::Result<()> {
 
     println!(
         "{} Deleted model {}",
-        style("✓").green(),
+        style("[OK]").green(),
         style(model_id).bold()
     );
 

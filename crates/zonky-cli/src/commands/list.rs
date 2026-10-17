@@ -10,7 +10,7 @@ pub fn run(config: &ZonkyConfig) -> anyhow::Result<()> {
     if models.is_empty() {
         println!(
             "{} No local models found. Use {} to download one.",
-            style("ℹ").blue(),
+            style("[INFO]").blue(),
             style("zonky pull <model-id>").bold()
         );
         return Ok(());
@@ -18,7 +18,7 @@ pub fn run(config: &ZonkyConfig) -> anyhow::Result<()> {
 
     println!(
         "\n{} Local models ({}):\n",
-        style("📦").bold(),
+        style("[FILES]").bold(),
         models.len()
     );
 

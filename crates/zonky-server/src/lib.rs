@@ -38,16 +38,16 @@ pub fn build_router(state: Arc<AppState>) -> Router {
 pub async fn serve(manager: ModelManager, config: zonky_core::ZonkyConfig) -> anyhow::Result<()> {
     let addr = format!("{}:{}", config.server.host, config.server.port);
 
-    let state = Arc::new(AppState::new(manager, config));
+    let state = Arc::new(AppState::new(Arc::new(manager), config));
     let app = build_router(state);
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     info!(address = %addr, "Zonky server starting");
 
-    println!("\n  🚀 Zonky server running at http://{addr}");
-    println!("  📡 OpenAI-compatible API: http://{addr}/v1/chat/completions");
-    println!("  📋 Model list: http://{addr}/v1/models");
-    println!("  ❤️  Health: http://{addr}/health\n");
+    println!("\n  [SERVER] Zonky server running at http://{addr}");
+    println!("  [API] OpenAI-compatible API: http://{addr}/v1/chat/completions");
+    println!("  [INFO] Model list: http://{addr}/v1/models");
+    println!("  [HEALTH] Health: http://{addr}/health\n");
 
     axum::serve(listener, app).await?;
     Ok(())

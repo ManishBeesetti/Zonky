@@ -24,12 +24,12 @@
   });
 
   function fetchLoadedModels() {
-    // Now handled by hardware store polling — this is just for the Refresh button
+    // Now handled by hardware store polling - this is just for the Refresh button
     loadingModels = false;
   }
 
   function formatGB(bytes) {
-    if (!bytes) return "—";
+    if (!bytes) return "-";
     return (bytes / (1024 * 1024 * 1024)).toFixed(1);
   }
 
@@ -411,7 +411,7 @@
                   Neural Engine
                 </div>
                 <div class="text-sm font-mono text-on-surface">
-                  {hw.vramPercent > 0 ? `${hw.vramPercent}% Utilization` : '—'}
+                  {hw.vramPercent > 0 ? `${hw.vramPercent}% Utilization` : '-'}
                 </div>
               </div>
             </div>

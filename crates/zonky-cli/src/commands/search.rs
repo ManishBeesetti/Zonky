@@ -8,25 +8,25 @@ pub async fn run(config: &ZonkyConfig, query: &str, limit: usize) -> anyhow::Res
 
     println!(
         "{} Searching HuggingFace for \"{}\"...\n",
-        style("🔍").bold(),
+        style("[SEARCH]").bold(),
         style(query).bold()
     );
 
     let models = hub.search_models(query, limit).await?;
 
     if models.is_empty() {
-        println!("{} No models found for \"{}\"", style("ℹ").blue(), query);
+        println!("{} No models found for \"{}\"", style("[INFO]").blue(), query);
         return Ok(());
     }
 
     for model in &models {
         let downloads = model
             .downloads
-            .map(|d| format!("⬇ {d}"))
+            .map(|d| format!("downloads:{d}"))
             .unwrap_or_default();
         let likes = model
             .likes
-            .map(|l| format!("♥ {l}"))
+            .map(|l| format!("likes:{l}"))
             .unwrap_or_default();
 
         println!(
@@ -45,7 +45,7 @@ pub async fn run(config: &ZonkyConfig, query: &str, limit: usize) -> anyhow::Res
 
     println!(
         "  {} Use {} to download a model",
-        style("💡").bold(),
+        style("[TIP]").bold(),
         style("zonky pull <model-id>").bold()
     );
 

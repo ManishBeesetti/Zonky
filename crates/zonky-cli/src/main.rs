@@ -6,7 +6,7 @@ use tracing_subscriber::EnvFilter;
 #[derive(Parser)]
 #[command(
     name = "zonky",
-    about = "⚡ Zonky — High-performance local LLM inference engine",
+    about = "Zonky - High-performance local LLM inference engine",
     version,
     long_about = "Zonky is a blazing-fast, Rust-powered local LLM inference engine.\n\
                    Run large language models locally with GPU acceleration,\n\
@@ -188,4 +188,20 @@ async fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Cli;
+    use clap::CommandFactory;
+
+    #[test]
+    fn help_text_has_no_mojibake() {
+        let cmd = Cli::command();
+        let about = cmd.get_about().map(|s| s.to_string()).unwrap_or_default();
+        assert!(about.contains("Zonky -"));
+        assert!(!about.contains('\u{00E2}'));
+        assert!(!about.contains('\u{00F0}'));
+        assert!(!about.contains('\u{00C2}'));
+    }
 }

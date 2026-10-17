@@ -3,7 +3,7 @@ use console::style;
 use zonky_core::gpu;
 
 pub fn run() {
-    println!("\n{} System Devices:\n", style("🖥️").bold());
+    println!("\n{} System Devices:\n", style("[HW]").bold());
 
     let devices = gpu::detect_devices();
 
@@ -16,7 +16,7 @@ pub fn run() {
                 vram_free,
             } => {
                 println!(
-                    "  {} CUDA:{} — {}",
+                    "  {} CUDA:{} - {}",
                     style(format!("[{i}]")).dim(),
                     index,
                     style(name).bold()
@@ -41,9 +41,9 @@ pub fn run() {
                 vram_free,
                 is_apu,
             } => {
-                let apu_tag = if *is_apu { " [APU — shared memory]" } else { "" };
+                let apu_tag = if *is_apu { " [APU - shared memory]" } else { "" };
                 println!(
-                    "  {} ROCm:{} — {}{}",
+                    "  {} ROCm:{} - {}{}",
                     style(format!("[{i}]")).dim(),
                     index,
                     style(name).bold(),
@@ -73,7 +73,7 @@ pub fn run() {
             }
             gpu::GpuDevice::Metal { unified_memory } => {
                 println!(
-                    "  {} Metal — Apple Silicon",
+                    "  {} Metal - Apple Silicon",
                     style(format!("[{i}]")).dim(),
                 );
                 println!(
