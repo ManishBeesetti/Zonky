@@ -43,6 +43,12 @@
 
   let hw = $derived(getHardware());
   let loadedModels = $derived(hw.loadedModels);
+  let localModels = $derived(hw.localModels || []);
+  let unloadedLocalModels = $derived(
+    localModels.filter((m) => !loadedModels.some((l) => l.id === m.id))
+  );
+  let loadingLocalModelId = $state(null);
+  let loadModelError = $state("");
 
   onMount(async () => {
     try {
@@ -133,8 +139,12 @@
 
   // Auto-select first model when models become available
   $effect(() => {
-    if (loadedModels.length > 0 && !selectedModel) {
-      selectedModel = loadedModels[0].id;
+    if (loadedModels.length > 0) {
+      if (!selectedModel || !loadedModels.some((m) => m.id === selectedModel)) {
+        selectedModel = loadedModels[0].id;
+      }
+    } else {
+      selectedModel = "";
     }
     loadingModels = false;
   });
@@ -143,6 +153,21 @@
     loadingModels = true;
     await refreshHardware();
     loadingModels = false;
+  }
+
+  async function loadAndSelectLocalModel(modelId) {
+    if (loadingLocalModelId) return;
+    loadingLocalModelId = modelId;
+    loadModelError = "";
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("load_model", { modelId });
+      await refreshHardware();
+      selectedModel = modelId;
+    } catch (e) {
+      loadModelError = String(e);
+    }
+    loadingLocalModelId = null;
   }
 
   function formatGB(bytes) {
@@ -174,7 +199,13 @@
 
   async function sendMessage() {
     const text = input.trim();
-    if (!text || sending || !selectedModel) return;
+    if (!text || sending) return;
+
+    // If no model is loaded yet, auto-load the first downloaded local model if available
+    if (!selectedModel && localModels.length > 0) {
+      await loadAndSelectLocalModel(localModels[0].id);
+    }
+    if (!selectedModel) return;
 
     messages = [...messages, { role: "user", content: text }];
     input = "";
@@ -297,7 +328,7 @@
   <!-- Chat Main Area -->
   <section class="flex-1 flex flex-col relative h-full">
     <!-- Model Picker Bar -->
-    <div class="px-6 py-3 border-b border-outline-variant/10 flex items-center gap-4 bg-surface-container-lowest/50 backdrop-blur-sm">
+    <div class="px-6 py-3 border-b border-outline-variant/10 flex flex-wrap items-center gap-3 bg-surface-container-lowest/50 backdrop-blur-sm">
       <span class="text-[10px] font-label uppercase tracking-widest text-on-surface-variant font-bold">Model</span>
       {#if loadedModels.length > 0}
         <select
@@ -310,6 +341,26 @@
         </select>
       {:else}
         <span class="text-sm text-on-surface-variant/60 italic">No models loaded</span>
+      {/if}
+      {#if unloadedLocalModels.length > 0}
+        <div class="flex items-center gap-1.5 flex-wrap">
+          <span class="text-[10px] font-mono text-on-surface-variant/60 uppercase">Load downloaded:</span>
+          {#each unloadedLocalModels.slice(0, 4) as lm}
+            <button
+              class="px-2.5 py-1 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary text-xs font-mono flex items-center gap-1 transition-colors disabled:opacity-50"
+              onclick={() => loadAndSelectLocalModel(lm.id)}
+              disabled={loadingLocalModelId !== null}
+              title={`Load ${lm.repo_id} (${lm.filename}) into VRAM`}
+            >
+              {#if loadingLocalModelId === lm.id}
+                <span class="material-symbols-outlined text-xs animate-spin">progress_activity</span>
+              {:else}
+                <span class="material-symbols-outlined text-xs">bolt</span>
+              {/if}
+              {lm.id}
+            </button>
+          {/each}
+        </div>
       {/if}
       <div class="ml-auto flex items-center gap-2">
         {#if messages.length > 0}
@@ -344,6 +395,13 @@
         </button>
       </div>
     </div>
+
+    {#if loadModelError}
+      <div class="mx-6 mt-3 px-4 py-2.5 rounded-lg bg-error/10 border border-error/20 flex items-center justify-between text-xs text-error font-mono">
+        <span>Failed to load model: {loadModelError}</span>
+        <button class="underline ml-4" onclick={() => (loadModelError = "")}>Dismiss</button>
+      </div>
+    {/if}
 
     <!-- Messages Stream -->
     <div class="flex-1 overflow-y-auto px-6 py-8 space-y-12 no-scrollbar">
@@ -426,7 +484,7 @@
                   >
                   {#if msg.telemetry}
                     <span class="text-[10px] font-mono text-on-surface-variant px-2 py-0.5 rounded bg-surface-container-low">
-                      {msg.telemetry.tokens_per_second.toFixed(1)} tok/s · {msg.telemetry.generated_tokens} tok · {msg.telemetry.total_latency_ms}ms
+                      {(msg.telemetry.tokens_per_second || 0).toFixed(1)} tok/s · {msg.telemetry.completion_tokens ?? msg.telemetry.generated_tokens ?? 0} tok · {msg.telemetry.duration_ms ?? msg.telemetry.total_latency_ms ?? 0}ms
                     </span>
                   {/if}
                 </div>

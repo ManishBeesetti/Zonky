@@ -1,7 +1,9 @@
 <script>
   import { onMount } from "svelte";
   import { addDownload, getDownloads } from "../stores/downloads.svelte.js";
+  import { getHardware } from "../stores/hardware.svelte.js";
 
+  let hw = $derived(getHardware());
   let searchResults = $state([]);
   let searchQuery = $state("");
   let searching = $state(false);
@@ -50,8 +52,22 @@
     default: "bg-primary/10 text-primary",
   };
 
-  onMount(async () => {
-    await loadLocalModels();
+  $effect(() => {
+    if (Array.isArray(hw.localModels) && hw.localModels.length > 0) {
+      localModels = hw.localModels;
+    }
+  });
+
+  onMount(() => {
+    loadLocalModels();
+    const onGlobalSearch = (e) => {
+      if (e.detail?.query) {
+        searchQuery = e.detail.query;
+        searchModels({ append: false });
+      }
+    };
+    window.addEventListener("zonky-global-search", onGlobalSearch);
+    return () => window.removeEventListener("zonky-global-search", onGlobalSearch);
   });
 
   async function loadLocalModels() {

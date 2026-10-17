@@ -1,6 +1,6 @@
 <script>
   import { onMount } from "svelte";
-  import { getHardware, refresh } from "../stores/hardware.svelte.js";
+  import { getHardware, refresh, setServerStatus } from "../stores/hardware.svelte.js";
 
   let hw = $derived(getHardware());
   let setupStatus = $state(null);
@@ -11,10 +11,13 @@
   let telemetry = $state({
     total_requests: 0,
     total_tokens_generated: 0,
+    total_completion_tokens: 0,
     avg_tokens_per_second: 0,
     avg_latency_ms: 0,
     recent_records: [],
+    recent: [],
   });
+  let recentTelemetry = $derived(telemetry.recent ?? telemetry.recent_records ?? []);
 
   const gaugeRadius = 70;
   const gaugeCircumference = 2 * Math.PI * gaugeRadius;
@@ -29,6 +32,7 @@
       ]);
       setupStatus = setup;
       serverStatus = status;
+      setServerStatus(status);
       if (telem) telemetry = telem;
     } catch (_) {}
   });
@@ -48,9 +52,11 @@
       telemetry = {
         total_requests: 0,
         total_tokens_generated: 0,
+        total_completion_tokens: 0,
         avg_tokens_per_second: 0,
         avg_latency_ms: 0,
         recent_records: [],
+        recent: [],
       };
       addLog("INFO", "Telemetry history cleared");
     } catch (e) {
@@ -65,10 +71,12 @@
       if (serverStatus.running) {
         await invoke("stop_server");
         serverStatus = { ...serverStatus, running: false };
+        setServerStatus(serverStatus);
         addLog("INFO", "Server stopped");
       } else {
         const result = await invoke("start_server");
         serverStatus = result;
+        setServerStatus(result);
         addLog("INFO", `Server started at ${result.url}`);
       }
     } catch (e) {
@@ -261,13 +269,13 @@
       </div>
     </div>
 
-    {#if telemetry.recent_records?.length > 0}
+    {#if recentTelemetry.length > 0}
       <div class="col-span-12 bg-surface-container-lowest rounded-xl overflow-hidden">
         <div class="px-6 py-4 flex justify-between items-center" style="background: rgba(28, 27, 28, 0.3);">
           <div class="flex items-center gap-3">
             <h3 class="font-headline text-md text-on-surface">Recent Inference Telemetry</h3>
             <span class="text-[10px] font-mono text-secondary px-2 py-0.5 bg-secondary/10 rounded">
-              {telemetry.total_requests} runs · {telemetry.total_tokens_generated} tokens
+              {telemetry.total_requests} runs · {telemetry.total_completion_tokens ?? telemetry.total_tokens_generated ?? 0} tokens
             </span>
           </div>
           <button
@@ -289,13 +297,13 @@
               </tr>
             </thead>
             <tbody>
-              {#each telemetry.recent_records.slice(0, 5) as rec}
+              {#each recentTelemetry.slice(0, 5) as rec}
                 <tr class="border-b border-outline-variant/5 hover:bg-surface-container-low/50">
                   <td class="px-4 py-2 text-primary">{rec.model_id}</td>
-                  <td class="px-4 py-2 text-secondary">{rec.backend_name}</td>
-                  <td class="px-4 py-2 text-on-surface-variant">{rec.prompt_tokens} → {rec.generated_tokens}</td>
-                  <td class="px-4 py-2 text-primary font-bold">{rec.tokens_per_second.toFixed(1)} tok/s</td>
-                  <td class="px-4 py-2 text-tertiary">{rec.total_latency_ms} ms</td>
+                  <td class="px-4 py-2 text-secondary">{rec.backend ?? rec.backend_name}</td>
+                  <td class="px-4 py-2 text-on-surface-variant">{rec.prompt_tokens} → {rec.completion_tokens ?? rec.generated_tokens ?? 0}</td>
+                  <td class="px-4 py-2 text-primary font-bold">{(rec.tokens_per_second || 0).toFixed(1)} tok/s</td>
+                  <td class="px-4 py-2 text-tertiary">{rec.duration_ms ?? rec.total_latency_ms ?? 0} ms</td>
                 </tr>
               {/each}
             </tbody>

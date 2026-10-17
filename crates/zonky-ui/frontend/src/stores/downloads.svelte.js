@@ -1,4 +1,5 @@
 // Shared download state — reactive Svelte 5 runes at module level
+import { refresh as refreshHardware } from "./hardware.svelte.js";
 
 const STORAGE_KEY = "zonky_downloads_v1";
 
@@ -52,17 +53,13 @@ async function ensureListener() {
     const { listen } = await import("@tauri-apps/api/event");
     await listen("download-progress", (event) => {
       const { id, downloaded, total, speed } = event.payload;
-      downloads = downloads.map((d) => {
-        if (d.id !== id) return d;
-        return {
-          ...d,
-          downloaded: downloaded || d.downloaded,
-          size: total || d.size,
-          speed: speed || 0,
-          status: "downloading",
-        };
-      });
-      persistDownloads(downloads);
+      const item = downloads.find((d) => d.id === id);
+      if (item) {
+        item.downloaded = downloaded || item.downloaded;
+        item.size = total || item.size;
+        item.speed = speed || 0;
+        item.status = "downloading";
+      }
     });
   } catch (_) {
     // Not in Tauri environment (tests, etc.)
@@ -110,6 +107,7 @@ async function startDownload(id) {
       d.id === id ? { ...d, status: "done", downloaded: d.size || d.downloaded, speed: 0 } : d
     );
     persistDownloads(downloads);
+    await refreshHardware();
   } catch (e) {
     downloads = downloads.map((d) =>
       d.id === id ? { ...d, status: "error", error: String(e), speed: 0 } : d

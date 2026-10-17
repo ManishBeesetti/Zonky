@@ -1,6 +1,8 @@
 <script>
   import { onMount } from "svelte";
+  import { getHardware, refresh as refreshHardware } from "../stores/hardware.svelte.js";
 
+  let hw = $derived(getHardware());
   let localModels = $state([]);
   let loading = $state(true);
 
@@ -9,10 +11,17 @@
     loading = false;
   });
 
+  $effect(() => {
+    if (Array.isArray(hw.localModels) && hw.localModels.length > 0) {
+      localModels = hw.localModels;
+    }
+  });
+
   async function loadLocalModels() {
     try {
       const { invoke } = await import("@tauri-apps/api/core");
       localModels = await invoke("list_local_models");
+      await refreshHardware();
     } catch (e) {
       console.error("Failed to list models:", e);
     }
@@ -55,12 +64,21 @@
     else sortBy = "name";
   }
 
+  function isModelLoaded(modelId) {
+    return hw.loadedModels.some((m) => m.id === modelId);
+  }
+
   async function loadModel(modelId) {
     loadingModelId = modelId;
     loadError = null;
     try {
       const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("load_model", { modelId });
+      if (isModelLoaded(modelId)) {
+        await invoke("unload_model", { modelId });
+      } else {
+        await invoke("load_model", { modelId });
+      }
+      await refreshHardware();
     } catch (e) {
       console.error("Load failed:", e);
       loadError = { modelId, title: "Failed to load model", message: String(e) };
@@ -157,6 +175,14 @@
           </div>
           <div class="flex gap-2">
             <button
+              class="bg-surface-container-high px-4 py-2 rounded-lg text-xs font-headline flex items-center gap-2 hover:bg-surface-container-highest transition-colors text-on-surface-variant"
+              onclick={loadLocalModels}
+              title="Rescan local models"
+            >
+              <span class="material-symbols-outlined text-sm">sync</span>
+              Rescan
+            </button>
+            <button
               class="bg-surface-container-high px-4 py-2 rounded-lg text-xs font-headline flex items-center gap-2 hover:bg-surface-container-highest transition-colors {showFilter ? 'text-primary border border-primary/30' : 'text-on-surface-variant'}"
               onclick={() => (showFilter = !showFilter)}
             >
@@ -234,11 +260,18 @@
                 class="grid grid-cols-12 items-center px-6 py-4 bg-surface-container-low hover:bg-surface-container transition-all group rounded-lg mb-2"
               >
                 <div class="col-span-4 flex flex-col">
-                  <span
-                    class="font-headline font-bold text-primary group-hover:text-surface-tint"
-                  >
-                    {model.repo_id}
-                  </span>
+                  <div class="flex items-center gap-2">
+                    <span
+                      class="font-headline font-bold text-primary group-hover:text-surface-tint"
+                    >
+                      {model.repo_id}
+                    </span>
+                    {#if isModelLoaded(model.id)}
+                      <span class="px-2 py-0.5 rounded text-[9px] font-mono uppercase tracking-wider bg-secondary/20 text-secondary font-bold">
+                        Loaded
+                      </span>
+                    {/if}
+                  </div>
                   <span class="text-[10px] font-mono text-on-surface-variant" title={model.path}>
                     {extractFilename(model.path)}
                   </span>

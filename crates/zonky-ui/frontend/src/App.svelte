@@ -7,13 +7,21 @@
   import Chat from "./routes/Chat.svelte";
   import Settings from "./routes/Settings.svelte";
   import { activeCount } from "./stores/downloads.svelte.js";
-  import { getHardware, startPolling, stopPolling } from "./stores/hardware.svelte.js";
+  import {
+    getHardware,
+    startPolling,
+    stopPolling,
+    refresh as refreshHardware,
+  } from "./stores/hardware.svelte.js";
 
   let currentPage = $state("dashboard");
   let systemStatus = $state("ready");
-  let serverRunning = $state(false);
+  let globalSearchQuery = $state("");
+  let showQuickMenu = $state(false);
   let dlCount = $derived(activeCount());
   let hw = $derived(getHardware());
+  let serverRunning = $derived(hw.serverStatus?.running || false);
+  let serverUrl = $derived(hw.serverStatus?.url || "http://127.0.0.1:8080");
   let activeModel = $derived(
     hw.loadedModels.length > 0 ? hw.loadedModels.map((m) => m.id).join(", ") : null
   );
@@ -33,6 +41,14 @@
   onDestroy(() => {
     stopPolling();
   });
+
+  function handleGlobalSearchKey(e) {
+    if (e.key === "Enter" && globalSearchQuery.trim()) {
+      const q = globalSearchQuery.trim();
+      currentPage = "models";
+      window.dispatchEvent(new CustomEvent("zonky-global-search", { detail: { query: q } }));
+    }
+  }
 
   function formatGB(bytes) {
     if (!bytes) return "0";
@@ -95,12 +111,18 @@
 <header
   class="fixed top-0 right-0 left-20 z-40 flex items-center justify-between px-6 h-14 bg-surface/80 backdrop-blur-xl"
 >
-  <div class="flex items-center gap-3">
+  <div class="flex items-center gap-3 flex-1 max-w-md">
     <span class="material-symbols-outlined text-primary">search</span>
-    <span class="text-sm text-on-surface-variant">System Search</span>
+    <input
+      type="text"
+      bind:value={globalSearchQuery}
+      onkeydown={handleGlobalSearchKey}
+      placeholder="Find GGUF models on HuggingFace Hub (Enter)..."
+      class="w-full bg-transparent text-sm text-on-surface placeholder:text-on-surface-variant focus:outline-none"
+    />
   </div>
 
-  <div class="flex items-center gap-6">
+  <div class="flex items-center gap-6 relative">
     {#if activeModel}
       <div
         class="flex items-center gap-2 px-3 py-1 bg-surface-container-low rounded-2xl"
@@ -131,9 +153,50 @@
         </span>
       {/if}
     </button>
-    <button class="text-on-surface-variant hover:text-primary transition-colors">
+    <button
+      class="text-on-surface-variant hover:text-primary transition-colors"
+      onclick={() => (showQuickMenu = !showQuickMenu)}
+      title="Quick Actions"
+    >
       <span class="material-symbols-outlined">more_vert</span>
     </button>
+
+    {#if showQuickMenu}
+      <div
+        class="absolute right-0 top-11 w-48 bg-surface-container-high border border-outline-variant/20 rounded-xl shadow-xl py-1.5 z-50 text-xs font-headline"
+      >
+        <button
+          class="w-full px-4 py-2 text-left text-on-surface hover:bg-surface-container-highest flex items-center gap-2"
+          onclick={async () => {
+            showQuickMenu = false;
+            await refreshHardware();
+          }}
+        >
+          <span class="material-symbols-outlined text-sm text-primary">refresh</span>
+          Refresh System State
+        </button>
+        <button
+          class="w-full px-4 py-2 text-left text-on-surface hover:bg-surface-container-highest flex items-center gap-2"
+          onclick={() => {
+            showQuickMenu = false;
+            currentPage = "library";
+          }}
+        >
+          <span class="material-symbols-outlined text-sm text-secondary">library_books</span>
+          Open Local Library
+        </button>
+        <button
+          class="w-full px-4 py-2 text-left text-on-surface hover:bg-surface-container-highest flex items-center gap-2"
+          onclick={() => {
+            showQuickMenu = false;
+            currentPage = "settings";
+          }}
+        >
+          <span class="material-symbols-outlined text-sm text-tertiary">settings</span>
+          Settings
+        </button>
+      </div>
+    {/if}
   </div>
 
   <!-- Bottom separator via background shift -->
@@ -166,7 +229,7 @@
   </div>
   <div class="flex items-center gap-6">
     {#if serverRunning}
-      <span class="text-on-surface-variant">Server: Localhost:8080</span>
+      <span class="text-secondary">Server: {serverUrl}</span>
     {/if}
     {#if hw.vramTotal > 0}
       <div class="flex items-center gap-1">

@@ -12,10 +12,89 @@ use crate::types::{DownloadProgress, HubModelDetail, HubModelInfo, HubSibling, L
 const HF_API_BASE: &str = "https://huggingface.co/api";
 
 /// Client for interacting with the HuggingFace Hub
+#[derive(Clone)]
 pub struct HubClient {
     http: Client,
     download_http: Client,
     cache: ModelCache,
+}
+
+/// Returns true if a HuggingFace Hub repository appears to be a text/chat/vision LLM
+/// rather than a diffusion/image/video/audio generation model packaged as GGUF.
+pub fn is_llm_compatible_repo(model: &HubModelInfo) -> bool {
+    const NON_LLM_PIPELINES: &[&str] = &[
+        "text-to-image",
+        "image-to-image",
+        "image-to-video",
+        "text-to-video",
+        "video-to-video",
+        "audio-to-audio",
+        "text-to-speech",
+        "text-to-audio",
+        "automatic-speech-recognition",
+        "unconditional-image-generation",
+        "image-segmentation",
+        "object-detection",
+        "depth-estimation",
+        "mask-generation",
+    ];
+
+    if let Some(ref pipeline) = model.pipeline_tag {
+        let p = pipeline.to_lowercase();
+        if NON_LLM_PIPELINES.contains(&p.as_str()) {
+            return false;
+        }
+    }
+
+    if let Some(ref lib) = model.library_name {
+        let l = lib.to_lowercase();
+        if matches!(l.as_str(), "diffusers" | "comfyui") {
+            return false;
+        }
+    }
+
+    for tag in &model.tags {
+        let t = tag.to_lowercase();
+        if matches!(
+            t.as_str(),
+            "diffusers"
+                | "stable-diffusion"
+                | "stable-diffusion-xl"
+                | "flux"
+                | "text-to-image"
+                | "image-to-image"
+                | "image-to-video"
+                | "text-to-video"
+                | "comfyui"
+        ) {
+            return false;
+        }
+    }
+
+    let id_lower = model.model_id.to_lowercase();
+    const NON_LLM_ID_PATTERNS: &[&str] = &[
+        "qwen-image",
+        "stable-diffusion",
+        "sdxl",
+        "flux.",
+        "flux-",
+        "wan2.1",
+        "hunyuan-video",
+        "hunyuanvideo",
+        "mochi-1",
+        "cogvideo",
+        "ltx-video",
+        "sd3.",
+        "sd35",
+        "auraflow",
+        "pixart",
+        "controlnet",
+    ];
+    if NON_LLM_ID_PATTERNS.iter().any(|pat| id_lower.contains(pat)) {
+        return false;
+    }
+
+    true
 }
 
 impl HubClient {
@@ -59,6 +138,16 @@ impl HubClient {
         })
     }
 
+    /// Return a new `HubClient` sharing the existing HTTP clients but pointing at `cache_dir`
+    pub fn with_cache_dir(&self, cache_dir: PathBuf) -> Result<Self> {
+        let cache = ModelCache::new(cache_dir)?;
+        Ok(Self {
+            http: self.http.clone(),
+            download_http: self.download_http.clone(),
+            cache,
+        })
+    }
+
     /// Resolve HF token from env vars or cached token file
     fn resolve_hf_token() -> Option<String> {
         // 1. HF_TOKEN env var (official)
@@ -92,7 +181,7 @@ impl HubClient {
         Self::new(cache_dir)
     }
 
-    /// Search for models on HuggingFace Hub
+    /// Search for LLM-compatible GGUF models on HuggingFace Hub
     pub async fn search_models(&self, query: &str, limit: usize) -> Result<Vec<HubModelInfo>> {
         #[derive(Serialize)]
         struct SearchParams<'a> {
@@ -103,16 +192,17 @@ impl HubClient {
             filter: &'a str,
         }
 
+        let fetch_limit = limit.saturating_mul(2).max(20);
         let url = format!("{HF_API_BASE}/models");
         let params = SearchParams {
             search: query,
-            limit,
+            limit: fetch_limit,
             sort: "downloads",
             direction: -1,
             filter: "gguf",
         };
 
-        debug!(query = %query, limit, "Searching HuggingFace Hub");
+        debug!(query = %query, limit, fetch_limit, "Searching HuggingFace Hub");
 
         let response = self
             .http
@@ -134,14 +224,20 @@ impl HubClient {
             .await
             .map_err(|e| ZonkyError::HubError(format!("Failed to read response: {e:?}")))?;
 
-        let models: Vec<HubModelInfo> = serde_json::from_str(&text).map_err(|e| {
+        let raw_models: Vec<HubModelInfo> = serde_json::from_str(&text).map_err(|e| {
             ZonkyError::HubError(format!(
                 "Failed to parse search results: {e} near byte {}",
                 e.column()
             ))
         })?;
 
-        info!(count = models.len(), query = %query, "Search returned models");
+        let models: Vec<HubModelInfo> = raw_models
+            .into_iter()
+            .filter(is_llm_compatible_repo)
+            .take(limit)
+            .collect();
+
+        info!(count = models.len(), query = %query, "Search returned LLM-compatible models");
         Ok(models)
     }
 
@@ -298,6 +394,9 @@ impl HubClient {
         let mut stream = response.bytes_stream();
         let mut downloaded: u64 = 0;
         let start = std::time::Instant::now();
+        let mut last_report = start
+            .checked_sub(std::time::Duration::from_secs(1))
+            .unwrap_or(start);
 
         use futures::StreamExt;
         let download_result: Result<()> = async {
@@ -315,20 +414,35 @@ impl HubClient {
                 file.write_all(&chunk).await?;
                 downloaded += chunk.len() as u64;
 
-                let elapsed = start.elapsed().as_secs_f64();
-                let speed = if elapsed > 0.0 {
-                    (downloaded as f64 / elapsed) as u64
-                } else {
-                    0
-                };
+                let is_complete = total_size.map(|t| downloaded >= t).unwrap_or(false);
+                if is_complete || last_report.elapsed() >= std::time::Duration::from_millis(100) {
+                    let elapsed = start.elapsed().as_secs_f64();
+                    let speed = if elapsed > 0.0 {
+                        (downloaded as f64 / elapsed) as u64
+                    } else {
+                        0
+                    };
 
-                progress_callback(DownloadProgress {
-                    downloaded,
-                    total: total_size,
-                    speed_bytes_per_sec: speed,
-                });
+                    progress_callback(DownloadProgress {
+                        downloaded,
+                        total: total_size,
+                        speed_bytes_per_sec: speed,
+                    });
+                    last_report = std::time::Instant::now();
+                }
             }
             file.flush().await?;
+            let elapsed = start.elapsed().as_secs_f64();
+            let speed = if elapsed > 0.0 {
+                (downloaded as f64 / elapsed) as u64
+            } else {
+                0
+            };
+            progress_callback(DownloadProgress {
+                downloaded,
+                total: total_size.or(Some(downloaded)),
+                speed_bytes_per_sec: speed,
+            });
             Ok(())
         }
         .await;
@@ -452,4 +566,43 @@ pub fn default_cache_dir() -> PathBuf {
     directories::BaseDirs::new()
         .map(|d| d.cache_dir().join("zonky"))
         .unwrap_or_else(|| PathBuf::from(".cache/zonky"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mock_hub_model(model_id: &str, pipeline_tag: Option<&str>, tags: &[&str]) -> HubModelInfo {
+        HubModelInfo {
+            model_id: model_id.to_string(),
+            author: None,
+            sha: None,
+            downloads: Some(100),
+            likes: Some(10),
+            tags: tags.iter().map(|s| s.to_string()).collect(),
+            pipeline_tag: pipeline_tag.map(|s| s.to_string()),
+            library_name: None,
+            last_modified: None,
+        }
+    }
+
+    #[test]
+    fn filters_out_diffusion_and_non_llm_repos() {
+        let qwen_image = mock_hub_model(
+            "unsloth/Qwen-Image-Edit-2511-GGUF",
+            Some("image-to-image"),
+            &["gguf", "diffusers"],
+        );
+        assert!(!is_llm_compatible_repo(&qwen_image));
+
+        let flux = mock_hub_model("city96/FLUX.1-dev-gguf", Some("text-to-image"), &["gguf"]);
+        assert!(!is_llm_compatible_repo(&flux));
+
+        let qwen_llm = mock_hub_model(
+            "Qwen/Qwen2.5-7B-Instruct-GGUF",
+            Some("text-generation"),
+            &["gguf", "conversational"],
+        );
+        assert!(is_llm_compatible_repo(&qwen_llm));
+    }
 }
