@@ -83,7 +83,40 @@ test.describe("Library", () => {
   test("should show empty state when no models downloaded", async ({
     page,
   }) => {
-    // This test uses custom overrides via the fixture
-    test.skip(); // Skip for now — overrides need fixture-level setup
+    await page.addInitScript(() => {
+      window.__TAURI_MOCK_OVERRIDES__ = {
+        list_local_models: [],
+      };
+    });
+    await page.goto("/");
+    await page.locator("nav button", { hasText: "Library" }).click();
+
+    await expect(visiblePage(page).getByText("No models downloaded")).toBeVisible();
+  });
+
+  test("should filter and sort models in library", async ({ page }) => {
+    await page.goto("/");
+    await page.locator("nav button", { hasText: "Library" }).click();
+
+    // Toggle filter bar
+    await visiblePage(page).locator("button", { hasText: "Filter" }).click();
+    const filterInput = visiblePage(page).locator(
+      'input[placeholder="Filter models by name or repo..."]'
+    );
+    await expect(filterInput).toBeVisible();
+
+    await filterInput.fill("TinyModel");
+    await expect(
+      visiblePage(page).getByText("TestOrg/TinyModel-1B-GGUF")
+    ).toBeVisible();
+    await expect(
+      visiblePage(page).getByText("TestOrg/SmallModel-7B-GGUF")
+    ).toHaveCount(0);
+
+    // Cycle sort
+    await visiblePage(page).locator("button", { hasText: "Sort" }).click();
+    await expect(
+      visiblePage(page).locator("button", { hasText: "Sort (size)" })
+    ).toBeVisible();
   });
 });
