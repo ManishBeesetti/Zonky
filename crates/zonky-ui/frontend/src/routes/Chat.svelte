@@ -1,6 +1,29 @@
 <script>
   import { onMount } from "svelte";
-  import { getHardware } from "../stores/hardware.svelte.js";
+  import { getHardware, refresh as refreshHardware } from "../stores/hardware.svelte.js";
+
+  const SESSIONS_STORAGE_KEY = "zonky_chat_sessions_v1";
+
+  const SYSTEM_PRESETS = [
+    {
+      id: "default",
+      label: "Default",
+      prompt:
+        "You are Zonky, a high-performance orchestration assistant. You optimize for precision, technical clarity, and efficiency in local inference environments.",
+    },
+    {
+      id: "coder",
+      label: "Coder",
+      prompt:
+        "You are an expert systems and software engineer. Provide clean, idiomatic, production-ready code with concise technical explanations.",
+    },
+    {
+      id: "concise",
+      label: "Concise",
+      prompt:
+        "Answer directly and concisely with zero filler. Prioritize bullet points and exact commands.",
+    },
+  ];
 
   let messages = $state([]);
   let input = $state("");
@@ -9,11 +32,104 @@
   let temperature = $state(0.75);
   let topP = $state(0.9);
   let repeatPenalty = $state(1.1);
+  let maxTokens = $state(2048);
+  let selectedPreset = $state("default");
+  let systemPrompt = $state(SYSTEM_PRESETS[0].prompt);
   let showConfig = $state(true);
   let loadingModels = $state(true);
+  let savedSessions = $state([]);
+  let activeSessionId = $state(null);
+  let exportFeedback = $state("");
 
   let hw = $derived(getHardware());
   let loadedModels = $derived(hw.loadedModels);
+
+  onMount(async () => {
+    try {
+      const raw = localStorage.getItem(SESSIONS_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) savedSessions = parsed;
+      }
+    } catch (_) {}
+
+    try {
+      const { listen } = await import("@tauri-apps/api/event");
+      await listen("chat-stream-chunk", (event) => {
+        const payload = event.payload;
+        if (!payload || !sending) return;
+        if (payload.delta) {
+          const lastIdx = messages.length - 1;
+          if (lastIdx >= 0 && messages[lastIdx].role === "assistant" && messages[lastIdx].streaming) {
+            messages[lastIdx] = {
+              ...messages[lastIdx],
+              content: messages[lastIdx].content + payload.delta,
+            };
+          } else {
+            messages = [
+              ...messages,
+              { role: "assistant", content: payload.delta, streaming: true },
+            ];
+          }
+        }
+      });
+    } catch (_) {}
+  });
+
+  function persistSessions() {
+    try {
+      localStorage.setItem(SESSIONS_STORAGE_KEY, JSON.stringify(savedSessions.slice(0, 25)));
+    } catch (_) {}
+  }
+
+  function saveCurrentSession() {
+    if (messages.length === 0) return;
+    const id = activeSessionId || `session-${Date.now()}`;
+    const existingIdx = savedSessions.findIndex((s) => s.id === id);
+    const sessionNum = existingIdx >= 0 ? existingIdx + 1 : savedSessions.length + 1;
+    const title = `Thread #${sessionNum} · ${selectedModel || "local"}`;
+    activeSessionId = id;
+    const entry = {
+      id,
+      title,
+      model: selectedModel,
+      updatedAt: Date.now(),
+      messages: messages.map((m) => ({
+        role: m.role,
+        content: m.content,
+        telemetry: m.telemetry || null,
+      })),
+    };
+    if (existingIdx >= 0) {
+      savedSessions[existingIdx] = entry;
+      savedSessions = [...savedSessions];
+    } else {
+      savedSessions = [entry, ...savedSessions];
+    }
+    persistSessions();
+  }
+
+  function loadSession(session) {
+    if (sending) return;
+    activeSessionId = session.id;
+    messages = session.messages || [];
+    if (session.model && loadedModels.some((m) => m.id === session.model)) {
+      selectedModel = session.model;
+    }
+  }
+
+  function deleteSession(sessionId) {
+    savedSessions = savedSessions.filter((s) => s.id !== sessionId);
+    if (activeSessionId === sessionId) {
+      activeSessionId = null;
+    }
+    persistSessions();
+  }
+
+  function selectPreset(preset) {
+    selectedPreset = preset.id;
+    systemPrompt = preset.prompt;
+  }
 
   // Auto-select first model when models become available
   $effect(() => {
@@ -23,8 +139,9 @@
     loadingModels = false;
   });
 
-  function fetchLoadedModels() {
-    // Now handled by hardware store polling - this is just for the Refresh button
+  async function fetchLoadedModels() {
+    loadingModels = true;
+    await refreshHardware();
     loadingModels = false;
   }
 
@@ -40,7 +157,6 @@
     let lastIdx = 0;
     let match;
     while ((match = codeRegex.exec(text)) !== null) {
-      // Text before code block
       const before = text.slice(lastIdx, match.index).trim();
       if (before) blocks.push({ type: "text", content: before });
       blocks.push({ type: "code", lang: match[1] || "text", content: match[2].trimEnd() });
@@ -64,15 +180,71 @@
     input = "";
     sending = true;
 
+    const outboundMessages = [];
+    if (systemPrompt.trim()) {
+      outboundMessages.push({ role: "system", content: systemPrompt.trim() });
+    }
+    for (const m of messages) {
+      if (m.role === "user" || m.role === "assistant") {
+        outboundMessages.push({ role: m.role, content: m.content });
+      }
+    }
+
     try {
       const { invoke } = await import("@tauri-apps/api/core");
       const response = await invoke("chat_complete", {
         model: selectedModel,
-        messages: messages.map((m) => ({ role: m.role, content: m.content })),
+        messages: outboundMessages,
+        temperature,
+        topP,
+        repeatPenalty,
+        maxTokens,
+        stream: true,
       });
-      messages = [...messages, { role: "assistant", content: response.content }];
+
+      const lastIdx = messages.length - 1;
+      if (lastIdx >= 0 && messages[lastIdx].role === "assistant" && messages[lastIdx].streaming) {
+        messages[lastIdx] = {
+          role: "assistant",
+          content: response.content || messages[lastIdx].content,
+          telemetry: response.telemetry || null,
+          streaming: false,
+        };
+      } else {
+        messages = [
+          ...messages,
+          {
+            role: "assistant",
+            content: response.content,
+            telemetry: response.telemetry || null,
+          },
+        ];
+      }
+      saveCurrentSession();
     } catch (e) {
-      messages = [...messages, { role: "assistant", content: `Error: ${e}` }];
+      const errStr = String(e);
+      const lastIdx = messages.length - 1;
+      if (lastIdx >= 0 && messages[lastIdx].role === "assistant" && messages[lastIdx].streaming) {
+        messages[lastIdx] = {
+          ...messages[lastIdx],
+          streaming: false,
+          content: messages[lastIdx].content || `Error: ${errStr}`,
+        };
+      } else if (!errStr.toLowerCase().includes("cancelled")) {
+        messages = [...messages, { role: "assistant", content: `Error: ${errStr}` }];
+      }
+    }
+    sending = false;
+  }
+
+  async function stopGeneration() {
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("cancel_generation");
+    } catch (_) {}
+    const lastIdx = messages.length - 1;
+    if (lastIdx >= 0 && messages[lastIdx].streaming) {
+      messages[lastIdx] = { ...messages[lastIdx], streaming: false };
     }
     sending = false;
   }
@@ -86,6 +258,38 @@
 
   function clearChat() {
     messages = [];
+    activeSessionId = null;
+  }
+
+  function exportChat(format) {
+    if (messages.length === 0) return;
+    let content = "";
+    if (format === "json") {
+      content = JSON.stringify(
+        {
+          model: selectedModel,
+          system_prompt: systemPrompt,
+          parameters: { temperature, top_p: topP, repeat_penalty: repeatPenalty, max_tokens: maxTokens },
+          messages,
+        },
+        null,
+        2
+      );
+    } else {
+      const lines = [`# Zonky Chat (${selectedModel || "local"})`, ""];
+      if (systemPrompt.trim()) {
+        lines.push(`> **System:** ${systemPrompt.trim()}`, "");
+      }
+      for (const m of messages) {
+        lines.push(`### ${m.role === "user" ? "Operator" : "Zonky Assistant"}`, "", m.content, "");
+      }
+      content = lines.join("\n");
+    }
+    try {
+      navigator.clipboard?.writeText(content);
+    } catch (_) {}
+    exportFeedback = `Exported ${format.toUpperCase()}`;
+    setTimeout(() => (exportFeedback = ""), 2000);
   }
 </script>
 
@@ -107,13 +311,38 @@
       {:else}
         <span class="text-sm text-on-surface-variant/60 italic">No models loaded</span>
       {/if}
-      <button
-        class="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-container-highest text-on-surface-variant hover:text-on-surface transition-colors text-[10px] font-label uppercase tracking-widest font-bold"
-        onclick={fetchLoadedModels}
-      >
-        <span class="material-symbols-outlined text-sm">refresh</span>
-        Refresh
-      </button>
+      <div class="ml-auto flex items-center gap-2">
+        {#if messages.length > 0}
+          <button
+            class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-surface-container-high text-on-surface-variant hover:text-primary transition-colors text-[10px] font-label uppercase tracking-widest font-bold"
+            onclick={() => exportChat("md")}
+            title="Export Markdown to clipboard"
+          >
+            <span class="material-symbols-outlined text-sm">download</span>
+            Export MD
+          </button>
+          <button
+            class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-surface-container-high text-on-surface-variant hover:text-primary transition-colors text-[10px] font-label uppercase tracking-widest font-bold"
+            onclick={() => exportChat("json")}
+            title="Export JSON to clipboard"
+          >
+            <span class="material-symbols-outlined text-sm">data_object</span>
+            Export JSON
+          </button>
+        {/if}
+        {#if exportFeedback}
+          <span class="text-[10px] font-mono text-secondary px-2 py-1 bg-secondary/10 rounded">
+            {exportFeedback}
+          </span>
+        {/if}
+        <button
+          class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-container-highest text-on-surface-variant hover:text-on-surface transition-colors text-[10px] font-label uppercase tracking-widest font-bold"
+          onclick={fetchLoadedModels}
+        >
+          <span class="material-symbols-outlined text-sm">refresh</span>
+          Refresh
+        </button>
+      </div>
     </div>
 
     <!-- Messages Stream -->
@@ -158,8 +387,7 @@
               >System Configuration</span
             >
             <p class="text-sm text-on-surface-variant leading-relaxed italic">
-              You are Zonky, a high-performance orchestration assistant. You optimize for
-              precision, technical clarity, and efficiency in local inference environments.
+              {systemPrompt}
             </p>
           </div>
         </div>
@@ -191,10 +419,17 @@
                 <span class="material-symbols-outlined text-sm text-secondary">smart_toy</span>
               </div>
               <div class="flex-1 space-y-4">
-                <span
-                  class="text-[10px] font-label uppercase tracking-widest text-secondary font-bold"
-                  >Zonky Assistant</span
-                >
+                <div class="flex items-center gap-3">
+                  <span
+                    class="text-[10px] font-label uppercase tracking-widest text-secondary font-bold"
+                    >Zonky Assistant</span
+                  >
+                  {#if msg.telemetry}
+                    <span class="text-[10px] font-mono text-on-surface-variant px-2 py-0.5 rounded bg-surface-container-low">
+                      {msg.telemetry.tokens_per_second.toFixed(1)} tok/s · {msg.telemetry.generated_tokens} tok · {msg.telemetry.total_latency_ms}ms
+                    </span>
+                  {/if}
+                </div>
                 <div class="space-y-4 text-on-surface leading-relaxed">
                   {#each parseContent(msg.content) as block}
                     {#if block.type === "code"}
@@ -269,6 +504,7 @@
               {#if sending}
                 <button
                   class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface-container-highest text-on-surface-variant hover:text-error transition-colors"
+                  onclick={stopGeneration}
                 >
                   <span class="material-symbols-outlined text-sm">stop_circle</span>
                   <span class="text-[10px] font-label uppercase tracking-widest font-bold"
@@ -385,7 +621,90 @@
               class="w-full accent-primary bg-surface-container-high h-1.5 rounded-2xl appearance-none cursor-pointer"
             />
           </div>
+
+          <!-- Max Tokens -->
+          <div class="space-y-3">
+            <div class="flex justify-between items-center">
+              <label
+                for="max-tokens-slider"
+                class="text-[10px] font-label uppercase tracking-widest text-on-surface-variant font-bold"
+                >Max Tokens</label
+              >
+              <span class="text-xs font-mono text-primary">{maxTokens}</span>
+            </div>
+            <input
+              id="max-tokens-slider"
+              type="range"
+              min="128"
+              max="4096"
+              step="128"
+              bind:value={maxTokens}
+              class="w-full accent-primary bg-surface-container-high h-1.5 rounded-2xl appearance-none cursor-pointer"
+            />
+          </div>
+
+          <!-- System Prompt Presets -->
+          <div class="space-y-3 pt-2 border-t border-outline-variant/10">
+            <div class="flex justify-between items-center">
+              <span class="text-[10px] font-label uppercase tracking-widest text-on-surface-variant font-bold">
+                System Prompt
+              </span>
+              <div class="flex gap-1">
+                {#each SYSTEM_PRESETS as preset}
+                  <button
+                    class="px-2 py-0.5 rounded text-[9px] font-mono uppercase transition-colors {selectedPreset === preset.id ? 'bg-primary text-on-primary font-bold' : 'bg-surface-container-high text-on-surface-variant hover:text-on-surface'}"
+                    onclick={() => selectPreset(preset)}
+                  >
+                    {preset.label}
+                  </button>
+                {/each}
+              </div>
+            </div>
+            <textarea
+              rows="3"
+              bind:value={systemPrompt}
+              oninput={() => (selectedPreset = "custom")}
+              placeholder="Custom system instructions..."
+              class="w-full bg-surface-container-low rounded-lg p-2.5 text-xs text-on-surface border border-outline-variant/20 focus:border-primary focus:outline-none resize-none"
+            ></textarea>
+          </div>
         </div>
+
+        <!-- Saved Sessions -->
+        {#if savedSessions.length > 0}
+          <div class="pt-6 border-t border-outline-variant/10">
+            <div class="flex items-center justify-between mb-3">
+              <h3 class="font-headline font-bold text-[10px] tracking-widest uppercase text-on-surface-variant">
+                Saved Sessions
+              </h3>
+              <button
+                class="text-[10px] font-mono text-primary hover:underline"
+                onclick={clearChat}
+              >
+                + New
+              </button>
+            </div>
+            <div class="space-y-1.5 max-h-40 overflow-y-auto no-scrollbar">
+              {#each savedSessions as s}
+                <div class="flex items-center justify-between px-3 py-2 rounded-lg bg-surface-container-low hover:bg-surface-container-high transition-colors group">
+                  <button
+                    class="text-left text-xs text-on-surface truncate flex-1"
+                    onclick={() => loadSession(s)}
+                  >
+                    {s.title} ({s.messages?.length || 0})
+                  </button>
+                  <button
+                    class="text-on-surface-variant/50 hover:text-error ml-2"
+                    onclick={() => deleteSession(s.id)}
+                    title="Delete session"
+                  >
+                    <span class="material-symbols-outlined text-xs">close</span>
+                  </button>
+                </div>
+              {/each}
+            </div>
+          </div>
+        {/if}
 
         <!-- Hardware Monitor Sidebar -->
         <div class="pt-6 border-t border-outline-variant/10">
