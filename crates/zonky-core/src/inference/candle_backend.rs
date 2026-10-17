@@ -87,29 +87,23 @@ impl InferenceBackend for CandleBackend {
         info!(model_id = %model_id, path = %path.display(), "Loading model with candle backend");
 
         // Detect format from extension
-        let ext = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("");
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
-        let file_size = std::fs::metadata(path)
-            .map(|m| m.len())
-            .unwrap_or(0);
+        let file_size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
 
         if ext != "gguf" {
-            return Err(ZonkyError::InvalidModelFormat(
-                format!("Candle backend currently supports GGUF format, got .{ext}")
-            ));
+            return Err(ZonkyError::InvalidModelFormat(format!(
+                "Candle backend currently supports GGUF format, got .{ext}"
+            )));
         }
 
         // Load GGUF model
         let device_clone = candle_device.clone();
         let path_clone = model_path.clone();
-        let (model, tokenizer) = tokio::task::spawn_blocking(move || {
-            load_gguf_model(&path_clone, &device_clone)
-        })
-        .await
-        .map_err(|e| ZonkyError::InferenceError(format!("Task join error: {e}")))??;
+        let (model, tokenizer) =
+            tokio::task::spawn_blocking(move || load_gguf_model(&path_clone, &device_clone))
+                .await
+                .map_err(|e| ZonkyError::InferenceError(format!("Task join error: {e}")))??;
 
         let loaded = LoadedCandleModel {
             model,
@@ -119,7 +113,10 @@ impl InferenceBackend for CandleBackend {
             file_size,
         };
 
-        self.models.write().await.insert(model_id_owned.clone(), loaded);
+        self.models
+            .write()
+            .await
+            .insert(model_id_owned.clone(), loaded);
 
         info!(model_id = %model_id, "Model loaded successfully");
 
@@ -143,6 +140,7 @@ impl InferenceBackend for CandleBackend {
         let max_tokens = request.max_tokens;
         let repeat_penalty = request.repetition_penalty;
         let seed = request.seed.unwrap_or(42);
+        let cancel_token = request.cancel_token.clone();
         let handle_id = handle.id.clone();
 
         info!(
@@ -155,8 +153,8 @@ impl InferenceBackend for CandleBackend {
 
         let models = self.models.clone();
 
-        let (generated_text, prompt_len, completion_tokens) =
-            tokio::task::spawn_blocking(move || -> Result<(String, u32, u32)> {
+        let (generated_text, prompt_len, completion_tokens, finish_reason) =
+            tokio::task::spawn_blocking(move || -> Result<(String, u32, u32, String)> {
                 let mut models = models.blocking_write();
                 let loaded = models
                     .get_mut(&handle_id)
@@ -174,10 +172,19 @@ impl InferenceBackend for CandleBackend {
 
                 // Build initial input tensor
                 let mut tokens = prompt_tokens.clone();
-                let mut logits_processor = LogitsProcessor::new(seed, Some(temperature), Some(top_p));
+                let mut logits_processor =
+                    LogitsProcessor::new(seed, Some(temperature), Some(top_p));
                 let mut generated_tokens: Vec<u32> = Vec::new();
+                let mut finish_reason = "length".to_string();
 
                 for i in 0..max_tokens {
+                    if let Some(ref cancel) = cancel_token {
+                        if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                            finish_reason = "cancelled".to_string();
+                            break;
+                        }
+                    }
+
                     let context_size = if i == 0 { tokens.len() } else { 1 };
                     let start_pos = tokens.len().saturating_sub(context_size);
                     let input = Tensor::new(&tokens[start_pos..], &loaded.device)
@@ -185,10 +192,9 @@ impl InferenceBackend for CandleBackend {
                         .unsqueeze(0)
                         .map_err(|e| ZonkyError::InferenceError(format!("Unsqueeze error: {e}")))?;
 
-                    let logits = loaded
-                        .model
-                        .forward(&input, start_pos)
-                        .map_err(|e| ZonkyError::InferenceError(format!("Forward pass error: {e}")))?;
+                    let logits = loaded.model.forward(&input, start_pos).map_err(|e| {
+                        ZonkyError::InferenceError(format!("Forward pass error: {e}"))
+                    })?;
 
                     let logits = logits
                         .squeeze(0)
@@ -202,16 +208,20 @@ impl InferenceBackend for CandleBackend {
                             repeat_penalty as f32,
                             &tokens[start..],
                         )
-                        .map_err(|e| ZonkyError::InferenceError(format!("Repeat penalty error: {e}")))?
+                        .map_err(|e| {
+                            ZonkyError::InferenceError(format!("Repeat penalty error: {e}"))
+                        })?
                     } else {
                         logits
                     };
 
-                    let next_token = logits_processor.sample(&logits)
+                    let next_token = logits_processor
+                        .sample(&logits)
                         .map_err(|e| ZonkyError::InferenceError(format!("Sampling error: {e}")))?;
 
                     // Check for EOS
                     if Some(next_token) == eos_token {
+                        finish_reason = "stop".to_string();
                         break;
                     }
 
@@ -226,7 +236,7 @@ impl InferenceBackend for CandleBackend {
                     .map_err(|e| ZonkyError::TokenizerError(format!("Decode error: {e}")))?;
 
                 let completion_tokens = generated_tokens.len() as u32;
-                Ok((generated_text, prompt_len, completion_tokens))
+                Ok((generated_text, prompt_len, completion_tokens, finish_reason))
             })
             .await
             .map_err(|e| ZonkyError::InferenceError(format!("Task join error: {e}")))??;
@@ -242,13 +252,14 @@ impl InferenceBackend for CandleBackend {
                     role: Role::Assistant,
                     content: generated_text,
                 },
-                finish_reason: Some("stop".to_string()),
+                finish_reason: Some(finish_reason),
             }],
             usage: Usage {
                 prompt_tokens: prompt_len,
                 completion_tokens,
                 total_tokens: prompt_len + completion_tokens,
             },
+            telemetry: None,
         };
 
         Ok(response)
@@ -269,6 +280,7 @@ impl InferenceBackend for CandleBackend {
         let max_tokens = request.max_tokens;
         let repeat_penalty = request.repetition_penalty;
         let seed = request.seed.unwrap_or(42);
+        let cancel_token = request.cancel_token.clone();
         let handle_id = handle.id.clone();
 
         let models = self.models.clone();
@@ -316,8 +328,16 @@ impl InferenceBackend for CandleBackend {
             let mut logits_processor = LogitsProcessor::new(seed, Some(temperature), Some(top_p));
             let mut prev_text_len = 0usize;
             let mut generated_tokens: Vec<u32> = Vec::new();
+            let mut finish_reason = "length";
 
             for i in 0..max_tokens {
+                if let Some(ref cancel) = cancel_token {
+                    if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                        finish_reason = "cancelled";
+                        break;
+                    }
+                }
+
                 let context_size = if i == 0 { tokens.len() } else { 1 };
                 let start_pos = tokens.len().saturating_sub(context_size);
                 let input = Tensor::new(&tokens[start_pos..], &loaded.device)
@@ -346,10 +366,12 @@ impl InferenceBackend for CandleBackend {
                     logits
                 };
 
-                let next_token = logits_processor.sample(&logits)
+                let next_token = logits_processor
+                    .sample(&logits)
                     .map_err(|e| ZonkyError::InferenceError(format!("Sampling error: {e}")))?;
 
                 if Some(next_token) == eos_token {
+                    finish_reason = "stop";
                     break;
                 }
 
@@ -396,7 +418,7 @@ impl InferenceBackend for CandleBackend {
                         role: None,
                         content: None,
                     },
-                    finish_reason: Some("stop".to_string()),
+                    finish_reason: Some(finish_reason.to_string()),
                 }],
             };
 
@@ -464,15 +486,35 @@ impl InferenceBackend for CandleBackend {
 /// See: https://github.com/ggerganov/ggml/blob/master/include/ggml.h (ggml_type enum)
 fn gguf_dtype_name(id: u32) -> &'static str {
     match id {
-        0 => "F32", 1 => "F16",
-        2 => "Q4_0", 3 => "Q4_1",
-        6 => "Q5_0", 7 => "Q5_1",
-        8 => "Q8_0", 9 => "Q8_1",
-        10 => "Q2_K", 11 => "Q3_K", 12 => "Q4_K", 13 => "Q5_K", 14 => "Q6_K", 15 => "Q8_K",
-        16 => "IQ2_XXS", 17 => "IQ2_XS", 18 => "IQ3_XXS", 19 => "IQ1_S", 20 => "IQ4_NL",
-        21 => "IQ3_S", 22 => "IQ2_S", 23 => "IQ4_XS",
-        24 => "I8", 25 => "I16", 26 => "I32", 27 => "I64", 28 => "F64",
-        29 => "IQ1_M", 30 => "BF16",
+        0 => "F32",
+        1 => "F16",
+        2 => "Q4_0",
+        3 => "Q4_1",
+        6 => "Q5_0",
+        7 => "Q5_1",
+        8 => "Q8_0",
+        9 => "Q8_1",
+        10 => "Q2_K",
+        11 => "Q3_K",
+        12 => "Q4_K",
+        13 => "Q5_K",
+        14 => "Q6_K",
+        15 => "Q8_K",
+        16 => "IQ2_XXS",
+        17 => "IQ2_XS",
+        18 => "IQ3_XXS",
+        19 => "IQ1_S",
+        20 => "IQ4_NL",
+        21 => "IQ3_S",
+        22 => "IQ2_S",
+        23 => "IQ4_XS",
+        24 => "I8",
+        25 => "I16",
+        26 => "I32",
+        27 => "I64",
+        28 => "F64",
+        29 => "IQ1_M",
+        30 => "BF16",
         _ => "unknown",
     }
 }
@@ -484,7 +526,9 @@ fn gguf_dtype_name(id: u32) -> &'static str {
 fn probe_gguf_compatibility(path: &Path) -> std::result::Result<(), String> {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
     if ext != "gguf" {
-        return Err(format!("Candle backend only supports GGUF format, got .{ext}"));
+        return Err(format!(
+            "Candle backend only supports GGUF format, got .{ext}"
+        ));
     }
 
     // Pre-screen filename for vision/projector files
@@ -493,42 +537,49 @@ fn probe_gguf_compatibility(path: &Path) -> std::result::Result<(), String> {
         .unwrap_or_default()
         .to_string_lossy()
         .to_lowercase();
-    if filename.contains("mmproj") || filename.contains("vision-encoder") || filename.contains("clip-") {
+    if filename.contains("mmproj")
+        || filename.contains("vision-encoder")
+        || filename.contains("clip-")
+    {
         return Err("Vision/projector file, not a language model".to_string());
     }
 
     // Open and parse GGUF header (metadata + tensor info, no weight data).
     // This will fail with "unknown dtype" if the file contains tensor types
     // candle doesn't support (IQ-series quantizations like IQ3_S, IQ2_XS, etc.).
-    let mut file = std::fs::File::open(path)
-        .map_err(|e| format!("Cannot open file: {e}"))?;
-    let content = candle_core::quantized::gguf_file::Content::read(&mut file)
-        .map_err(|e| {
-            let err_str = e.to_string();
-            if err_str.contains("unknown dtype") {
-                // Extract the dtype number to give a precise name
-                let dtype_name = err_str
-                    .split("unknown dtype for tensor ")
-                    .nth(1)
-                    .and_then(|s| s.trim().parse::<u32>().ok())
-                    .map(|id| gguf_dtype_name(id))
-                    .unwrap_or("unknown");
-                format!("Unsupported GGUF tensor type: {dtype_name}. \
+    let mut file = std::fs::File::open(path).map_err(|e| format!("Cannot open file: {e}"))?;
+    let content = candle_core::quantized::gguf_file::Content::read(&mut file).map_err(|e| {
+        let err_str = e.to_string();
+        if err_str.contains("unknown dtype") {
+            // Extract the dtype number to give a precise name
+            let dtype_name = err_str
+                .split("unknown dtype for tensor ")
+                .nth(1)
+                .and_then(|s| s.trim().parse::<u32>().ok())
+                .map(|id| gguf_dtype_name(id))
+                .unwrap_or("unknown");
+            format!(
+                "Unsupported GGUF tensor type: {dtype_name}. \
                     Candle only supports standard quantizations (Q4_K_M, Q5_K_M, Q8_0, F16, BF16). \
                     IQ-series quantizations (IQ2, IQ3, IQ4) are not supported. \
-                    Download a Q4_K_M or Q5_K_M variant instead.")
-            } else {
-                format!("Cannot read GGUF: {err_str}")
-            }
-        })?;
+                    Download a Q4_K_M or Q5_K_M variant instead."
+            )
+        } else {
+            format!("Cannot read GGUF: {err_str}")
+        }
+    })?;
 
     // Check architecture — reject vision/encoder models
-    let arch = content.metadata.get("general.architecture")
+    let arch = content
+        .metadata
+        .get("general.architecture")
         .and_then(|v| v.to_string().ok())
         .cloned()
         .unwrap_or_default();
     if arch == "clip" || arch == "t5encoder" || arch == "mllama" {
-        return Err(format!("Architecture '{arch}' is a vision/encoder model, not supported for text generation"));
+        return Err(format!(
+            "Architecture '{arch}' is a vision/encoder model, not supported for text generation"
+        ));
     }
 
     Ok(())
@@ -547,17 +598,20 @@ fn load_gguf_model(
         .unwrap_or_default()
         .to_string_lossy()
         .to_lowercase();
-    if filename.contains("mmproj") || filename.contains("vision-encoder") || filename.contains("clip-") {
-        return Err(ZonkyError::InvalidModelFormat(
-            format!("'{}' is a vision/projector file, not a language model. \
+    if filename.contains("mmproj")
+        || filename.contains("vision-encoder")
+        || filename.contains("clip-")
+    {
+        return Err(ZonkyError::InvalidModelFormat(format!(
+            "'{}' is a vision/projector file, not a language model. \
             Download the main model GGUF file instead (e.g. the Q4_K_M or Q8_0 variant).",
-            path.file_name().unwrap_or_default().to_string_lossy())
-        ));
+            path.file_name().unwrap_or_default().to_string_lossy()
+        )));
     }
 
     let mut file = std::fs::File::open(path)?;
-    let mut model_content = candle_core::quantized::gguf_file::Content::read(&mut file)
-        .map_err(|e| {
+    let mut model_content =
+        candle_core::quantized::gguf_file::Content::read(&mut file).map_err(|e| {
             let err_str = e.to_string();
             if err_str.contains("unknown dtype") {
                 let dtype_name = err_str
@@ -566,13 +620,14 @@ fn load_gguf_model(
                     .and_then(|s| s.trim().parse::<u32>().ok())
                     .map(|id| gguf_dtype_name(id))
                     .unwrap_or("unknown");
-                ZonkyError::InvalidModelFormat(
-                    format!("Unsupported GGUF tensor type '{}' in '{}'. \
+                ZonkyError::InvalidModelFormat(format!(
+                    "Unsupported GGUF tensor type '{}' in '{}'. \
                     Candle supports standard quantizations (Q4_K_M, Q5_K_M, Q8_0, F16, BF16) \
                     but not IQ-series (IQ2, IQ3, IQ4). \
                     Download a Q4_K_M or Q5_K_M variant instead.",
-                    dtype_name, path.file_name().unwrap_or_default().to_string_lossy())
-                )
+                    dtype_name,
+                    path.file_name().unwrap_or_default().to_string_lossy()
+                ))
             } else {
                 ZonkyError::InferenceError(format!("Failed to read GGUF: {e}"))
             }
@@ -592,15 +647,18 @@ fn load_gguf_model(
     }
 
     // Also reject based on architecture
-    let arch = model_content.metadata.get("general.architecture")
+    let arch = model_content
+        .metadata
+        .get("general.architecture")
         .and_then(|v| v.to_string().ok())
         .cloned()
         .unwrap_or_default();
     if arch == "clip" || arch == "t5encoder" || arch == "mllama" {
-        return Err(ZonkyError::InvalidModelFormat(
-            format!("This GGUF file uses the '{}' architecture, which is a vision/encoder model, \
-            not a text generation model. Download the main model GGUF file instead.", arch)
-        ));
+        return Err(ZonkyError::InvalidModelFormat(format!(
+            "This GGUF file uses the '{}' architecture, which is a vision/encoder model, \
+            not a text generation model. Download the main model GGUF file instead.",
+            arch
+        )));
     }
 
     // Detect architecture and remap metadata keys to llama.* prefix
@@ -621,7 +679,10 @@ fn load_gguf_model(
             .map_err(|e| ZonkyError::TokenizerError(format!("Failed to load tokenizer: {e}")))?
     } else {
         // No tokenizer found — return error so caller can download it
-        warn!("No tokenizer.json found at {}. Download the tokenizer first.", model_dir.display());
+        warn!(
+            "No tokenizer.json found at {}. Download the tokenizer first.",
+            model_dir.display()
+        );
         return Err(ZonkyError::TokenizerError(
             format!("No tokenizer.json found in {}. Use `zonky pull` to download the model with its tokenizer.", model_dir.display())
         ));
@@ -690,10 +751,9 @@ fn synthesize_rope_dim(content: &mut candle_core::quantized::gguf_file::Content,
 
     if let Some(kl) = key_length {
         info!("Synthesizing llama.rope.dimension_count = {kl} from attention.key_length");
-        content.metadata.insert(
-            "llama.rope.dimension_count".to_string(),
-            Value::U32(kl),
-        );
+        content
+            .metadata
+            .insert("llama.rope.dimension_count".to_string(), Value::U32(kl));
         return;
     }
 
@@ -710,11 +770,12 @@ fn synthesize_rope_dim(content: &mut candle_core::quantized::gguf_file::Content,
     if let (Some(e), Some(h)) = (emb_len, head_count) {
         if h > 0 {
             let dim = e / h;
-            info!("Synthesizing llama.rope.dimension_count = {dim} from embedding_length/head_count");
-            content.metadata.insert(
-                "llama.rope.dimension_count".to_string(),
-                Value::U32(dim),
+            info!(
+                "Synthesizing llama.rope.dimension_count = {dim} from embedding_length/head_count"
             );
+            content
+                .metadata
+                .insert("llama.rope.dimension_count".to_string(), Value::U32(dim));
         }
     }
 }

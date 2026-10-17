@@ -35,6 +35,9 @@ pub enum ZonkyError {
     #[error("Download error: {0}")]
     DownloadError(String),
 
+    #[error("Operation cancelled: {0}")]
+    Cancelled(String),
+
     #[error("Tokenizer error: {0}")]
     TokenizerError(String),
 
